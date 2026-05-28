@@ -1,122 +1,149 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { Navigate, Route, Routes } from "react-router-dom";
 
-function App() {
-  const [count, setCount] = useState(0)
+import SplashPage from "@/pages/SplashPage";
+import LoginPage from "@/pages/auth/LoginPage";
+import RegisterPage from "@/pages/auth/RegisterPage";
+import OtpVerificationPage from "@/pages/auth/OtpVerificationPage";
+import PlaceholderPage from "@/pages/PlaceholderPage";
+import { PublicOnlyRoute, RequireAuth } from "@/routes/AuthGuards";
+import RiderHomePage from "@/pages/rider/RiderHomePage";
+import RiderSearchingPage from "@/pages/rider/RiderSearchingPage";
+import RiderLiveRidePage from "./pages/rider/RiderLiveRidePage";
+import RiderReceiptPage from "./pages/rider/RiderReceiptPage";
+import RiderRatingPage from "./pages/rider/RiderRatingPage";
+import RiderRideHistoryPage from "./pages/rider/RiderRideHistoryPage";
+import RiderRideDetailPage from "./pages/rider/RiderRideDetailPage";
+import RiderSavedPlacesPage from "./pages/rider/RiderSavedPlacesPage";
+import ProfilePage from "./pages/shared/ProfilePage";
+import DriverHomePage from "./pages/driver/DriverHomePage";
+import DriverOnboardingPage from "./pages/driver/DriverOnboardingPage";
+import DriverDocumentsPage from "./pages/driver/DriverDocumentsPage";
+import DriverVehiclesPage from "./pages/driver/DriverVehiclesPage";
+import DriverNavigationToPickupPage from "./pages/driver/DriverNavigationToPickupPage";
+import DriverArrivedWaitingPage from "./pages/driver/DriverArrivedWaitingPage";
+import DriverActiveTripPage from "./pages/driver/DriverActiveTripPage";
+import DriverRideSummaryPage from "./pages/driver/DriverRideSummaryPage";
+import DriverEarningsPage from "./pages/driver/DriverEarningsPage";
+import DriverRatingsPage from "./pages/driver/DriverRatingsPage";
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+export default function App() {
+    return (
+        <Routes>
+            <Route path="/" element={<Navigate to="/splash" replace />} />
+            <Route path="/splash" element={<SplashPage />} />
 
-      <div className="ticks"></div>
+            <Route element={<PublicOnlyRoute />}>
+                <Route path="/auth/login" element={<LoginPage />} />
+                <Route
+                    path="/auth/register/rider"
+                    element={<RegisterPage role="rider" />}
+                />
+                <Route
+                    path="/auth/register/driver"
+                    element={<RegisterPage role="driver" />}
+                />
+            </Route>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+            <Route path="/auth/verify-otp" element={<OtpVerificationPage />} />
+            <Route path="/auth/otp" element={<OtpVerificationPage />} />
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+            <Route element={<RequireAuth allowedRoles={["rider"]} />}>
+                <Route path="/rider/home" element={<RiderHomePage />} />
+                <Route
+                    path="/rider/ride/:ride_id/searching"
+                    element={<RiderSearchingPage />}
+                />
+                <Route
+                    path="/rider/ride/:ride_id/live"
+                    element={<RiderLiveRidePage />}
+                />
+                <Route
+                    path="/rider/rides/:ride_id"
+                    element={<RiderRideDetailPage />}
+                />
+                <Route
+                    path="/rider/saved-places"
+                    element={<RiderSavedPlacesPage />}
+                />
+                <Route
+                    path="/rider/ride/:ride_id/receipt"
+                    element={<RiderReceiptPage />}
+                />
+                <Route
+                    path="/rider/ride/:ride_id/rating"
+                    element={<RiderRatingPage />}
+                />
+                <Route path="/rider/rides" element={<RiderRideHistoryPage />} />
+                <Route
+                    path="/rider/profile"
+                    element={<PlaceholderPage title="Rider Profile" />}
+                />
+            </Route>
+            <Route path="/profile" element={<ProfilePage />} />
+
+            <Route element={<RequireAuth allowedRoles={["driver"]} />}>
+                <Route path="/driver/home" element={<DriverHomePage />} />
+                <Route
+                    path="/driver/onboarding"
+                    element={<DriverOnboardingPage />}
+                />
+                <Route
+                    path="/driver/documents"
+                    element={<DriverDocumentsPage />}
+                />
+                <Route
+                    path="/driver/vehicles"
+                    element={<DriverVehiclesPage />}
+                />
+                <Route path="/driver/ratings" element={<DriverRatingsPage />} />
+                <Route
+                    path="/driver/rides/:ride_id/navigation"
+                    element={<DriverNavigationToPickupPage />}
+                />
+                <Route
+                    path="/driver/rides/:ride_id/arrived"
+                    element={<DriverArrivedWaitingPage />}
+                />
+                <Route
+                    path="/driver/rides/:ride_id/active"
+                    element={<DriverActiveTripPage />}
+                />
+                <Route
+                    path="/driver/rides/:ride_id/summary"
+                    element={<DriverRideSummaryPage />}
+                />
+                <Route path="/driver/earnings" element={<DriverEarningsPage />} />
+            </Route>
+
+            <Route element={<RequireAuth allowedRoles={["admin"]} />}>
+                <Route
+                    path="/admin/dashboard"
+                    element={
+                        <PlaceholderPage
+                            title="Admin Dashboard"
+                            subtitle="Admin demo screens will show pricing rules, surge zones, ML models, and document review."
+                        />
+                    }
+                />
+                <Route
+                    path="/admin/pricing-rules"
+                    element={<PlaceholderPage title="Pricing Rules" />}
+                />
+                <Route
+                    path="/admin/driver-documents"
+                    element={<PlaceholderPage title="Driver Document Review" />}
+                />
+                <Route
+                    path="/admin/surge-zones"
+                    element={<PlaceholderPage title="Surge Zones" />}
+                />
+                <Route
+                    path="/admin/ml-models"
+                    element={<PlaceholderPage title="ML Models" />}
+                />
+            </Route>
+
+            <Route path="*" element={<Navigate to="/splash" replace />} />
+        </Routes>
+    );
 }
-
-export default App

@@ -1,0 +1,10 @@
+{
+  "appId": "com.project.citylift",
+  "appName": "city-lift-frontend",
+  "webDir": "dist",
+   "backgroundColor": "#FFFFFF",
+  "android": {
+    "backgroundColor": "#FFFFFF",
+    "minWebViewVersion": 60
+  }
+}
