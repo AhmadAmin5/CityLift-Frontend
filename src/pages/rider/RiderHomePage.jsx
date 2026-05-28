@@ -160,6 +160,7 @@ export default function RiderHomePage() {
     const [stops, setStops] = useState([]);
     const [rideType, setRideType] = useState("standard");
     const [riderNote, setRiderNote] = useState("Call me when arrived");
+    const [mapSelectionTarget, setMapSelectionTarget] = useState("pickup");
 
     const nearbyDriversQuery = useNearbyDrivers({
         latitude: pickup?.latitude,
@@ -188,15 +189,27 @@ export default function RiderHomePage() {
     }
 
     async function handlePickupPinChange(location) {
+        await handleMapLocationChange("pickup", location);
+    }
+
+    async function handleMapLocationChange(target, location) {
         const fallbackLocation = {
             latitude: Number(location.latitude),
             longitude: Number(location.longitude),
-            address: "Selected pickup pin",
+            address:
+                target === "dropoff"
+                    ? "Selected dropoff pin"
+                    : "Selected pickup pin",
             provider: "mapbox",
             provider_place_id: null,
         };
 
-        setPickup(fallbackLocation);
+        if (target === "dropoff") {
+            setDropoff(fallbackLocation);
+        } else {
+            setPickup(fallbackLocation);
+        }
+
         estimateMutation.reset();
         routePreviewMutation.reset();
 
@@ -206,10 +219,14 @@ export default function RiderHomePage() {
                 longitude: fallbackLocation.longitude,
             });
 
-            const nextPickup = normalizeLocation(data, fallbackLocation);
+            const nextLocation = normalizeLocation(data, fallbackLocation);
 
-            if (nextPickup) {
-                setPickup(nextPickup);
+            if (nextLocation) {
+                if (target === "dropoff") {
+                    setDropoff(nextLocation);
+                } else {
+                    setPickup(nextLocation);
+                }
             }
         } catch (error) {
             toast.error(getApiErrorMessage(error));
@@ -343,7 +360,9 @@ export default function RiderHomePage() {
                         surgeZones={surgeZones}
                         mapConfig={mapConfigQuery.data}
                         route={route}
+                        locationSelectionTarget={mapSelectionTarget}
                         onPickupChange={handlePickupPinChange}
+                        onLocationChange={handleMapLocationChange}
                     />
 
                     <header className="absolute left-0 right-0 top-0 z-40 px-5 pt-6">
@@ -448,6 +467,8 @@ export default function RiderHomePage() {
                                 estimateMutation.reset();
                                 routePreviewMutation.reset();
                             }}
+                            mapSelectionTarget={mapSelectionTarget}
+                            setMapSelectionTarget={setMapSelectionTarget}
                             savedPlaces={savedPlaces}
                             currentLocation={pickup || LAHORE_DEFAULT_LOCATION}
                             estimate={estimate}

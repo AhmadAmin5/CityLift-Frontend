@@ -83,6 +83,7 @@ export default function App() {
 
             <Route element={<RequireAuth allowedRoles={["driver"]} />}>
                 <Route path="/driver/home" element={<DriverHomePage />} />
+                <Route path="/drive/home" element={<DriverHomePage />} />
                 <Route
                     path="/driver/onboarding"
                     element={<DriverOnboardingPage />}
@@ -101,7 +102,15 @@ export default function App() {
                     element={<DriverNavigationToPickupPage />}
                 />
                 <Route
+                    path="/driver/ride/:ride_id/to-pickup"
+                    element={<DriverNavigationToPickupPage />}
+                />
+                <Route
                     path="/driver/rides/:ride_id/arrived"
+                    element={<DriverArrivedWaitingPage />}
+                />
+                <Route
+                    path="/driver/ride/:ride_id/arrived"
                     element={<DriverArrivedWaitingPage />}
                 />
                 <Route
@@ -109,7 +118,15 @@ export default function App() {
                     element={<DriverActiveTripPage />}
                 />
                 <Route
+                    path="/driver/ride/:ride_id/active"
+                    element={<DriverActiveTripPage />}
+                />
+                <Route
                     path="/driver/rides/:ride_id/summary"
+                    element={<DriverRideSummaryPage />}
+                />
+                <Route
+                    path="/driver/ride/:ride_id/summary"
                     element={<DriverRideSummaryPage />}
                 />
                 <Route path="/driver/earnings" element={<DriverEarningsPage />} />

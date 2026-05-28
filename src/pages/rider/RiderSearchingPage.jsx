@@ -29,24 +29,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-
-const demoRide = {
-  pickup: {
-    address: "Gulberg, Lahore",
-  },
-  dropoff: {
-    address: "Johar Town, Lahore",
-  },
-  fare: {
-    currency: "PKR",
-    estimated_min_fare: 630,
-    estimated_max_fare: 770,
-  },
-  estimated_distance_km: 12.4,
-  estimated_duration_min: 33,
-  nearby_drivers_count: 6,
-  search_radius_km: 3,
-};
+import { ErrorState } from "@/common/ErrorState";
+import { LoadingState } from "@/common/LoadingState";
+import { getApiErrorMessage } from "@/api/client";
+import { useCancelRide } from "@/hooks/rides/useCancelRide";
+import { useRide } from "@/hooks/rides/useRide";
+import { useRideSocket } from "@/hooks/socket/useRideSocket";
+import { getRideFromResponse } from "@/utils/apiShapes";
+import { toSearchRideView } from "@/utils/rideUi";
 
 const searchSteps = [
   {
@@ -265,9 +255,56 @@ export default function RiderSearchingPage() {
   const navigate = useNavigate();
   const { ride_id } = useParams();
   const [showHelp, setShowHelp] = useState(false);
+  const rideQuery = useRide(ride_id);
+  const cancelRideMutation = useCancelRide(ride_id);
 
-  function handleCancelUiOnly() {
-    navigate("/rider/home", { replace: true });
+  const ride = getRideFromResponse(rideQuery.data);
+  const rideView = toSearchRideView(ride);
+
+  useRideSocket({
+    rideId: ride_id,
+    handlers: {
+      onStatusUpdate: (payload) => {
+        if (payload?.ride_id !== ride_id) return;
+        if (payload.status === "accepted" || payload.status === "driver_assigned") {
+          navigate(`/rider/ride/${ride_id}/live`, { replace: true });
+        }
+        if (payload.status === "cancelled") {
+          navigate("/rider/home", { replace: true });
+        }
+      },
+      onCancelled: (payload) => {
+        if (!payload?.ride_id || payload.ride_id === ride_id) {
+          navigate("/rider/home", { replace: true });
+        }
+      },
+    },
+    enabled: Boolean(ride_id),
+  });
+
+  async function handleCancelRide() {
+    try {
+      await cancelRideMutation.mutateAsync("Rider cancelled while searching");
+      navigate("/rider/home", { replace: true });
+    } catch (error) {
+      window.alert(getApiErrorMessage(error));
+    }
+  }
+
+  if (rideQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <LoadingState label="Loading ride request..." />
+      </main>
+    );
+  }
+
+  if (rideQuery.isError || !ride) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <ErrorState message="Ride request not found. Return home and try again." />
+      </main>
+    );
   }
 
   return (
@@ -320,7 +357,7 @@ export default function RiderSearchingPage() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <Badge className="rounded-full bg-[#E8F7F4] px-3 py-1.5 text-[#008C78] hover:bg-[#E8F7F4]">
-                {demoRide.nearby_drivers_count} drivers nearby
+                {rideView.nearby_drivers_count} drivers nearby
               </Badge>
 
               <h1 className="mt-4 text-[30px] font-bold leading-9 tracking-[-0.04em] text-[#101820]">
@@ -328,7 +365,7 @@ export default function RiderSearchingPage() {
               </h1>
 
               <p className="mt-2 text-base leading-6 text-[#4B5563]">
-                We are checking nearby drivers within {demoRide.search_radius_km}
+                We are checking nearby drivers within {rideView.search_radius_km}
                 km of your pickup.
               </p>
             </div>
@@ -339,8 +376,8 @@ export default function RiderSearchingPage() {
           </div>
 
           <div className="mt-5 space-y-4">
-            <RouteSummaryCard ride={demoRide} />
-            <FareMiniCard ride={demoRide} />
+            <RouteSummaryCard ride={rideView} />
+            <FareMiniCard ride={rideView} />
             <SearchProgressCard />
 
             <Card className="rounded-[24px] border-[#E1E5EA] bg-white p-4 shadow-sm">
@@ -354,7 +391,7 @@ export default function RiderSearchingPage() {
                     Ride request ID
                   </p>
                   <p className="mt-0.5 truncate text-xs text-[#4B5563]">
-                    {ride_id || "demo_ride_001"}
+                    {ride_id}
                   </p>
                 </div>
 
@@ -388,8 +425,7 @@ export default function RiderSearchingPage() {
                   </AlertDialogTitle>
 
                   <AlertDialogDescription className="text-base leading-6 text-[#4B5563]">
-                    You can cancel now because no driver has accepted yet. This
-                    is UI-only for now; later this will call the cancel ride API.
+                    You can cancel now because no driver has accepted yet.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
 
@@ -399,7 +435,7 @@ export default function RiderSearchingPage() {
                   </AlertDialogCancel>
 
                   <AlertDialogAction
-                    onClick={handleCancelUiOnly}
+                    onClick={handleCancelRide}
                     className="h-12 rounded-[14px] bg-[#DC2626] text-base font-semibold text-white hover:bg-[#B91C1C]"
                   >
                     Cancel ride

@@ -18,6 +18,8 @@ export function RideActionSheet({
   setStops,
   setRiderNote,
   setRideType,
+  mapSelectionTarget,
+  setMapSelectionTarget,
   savedPlaces,
   currentLocation,
   estimate,
@@ -106,6 +108,32 @@ export function RideActionSheet({
       ) : null}
 
       <div className="mt-5 space-y-4">
+        <div className="grid grid-cols-2 gap-2 rounded-[18px] bg-[#F7F8FA] p-2">
+          <button
+            type="button"
+            onClick={() => setMapSelectionTarget?.("pickup")}
+            className={
+              mapSelectionTarget === "pickup"
+                ? "h-11 rounded-[14px] bg-white text-sm font-semibold text-[#008C78] shadow-soft"
+                : "h-11 rounded-[14px] text-sm font-semibold text-[#4B5563]"
+            }
+          >
+            Map sets pickup
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMapSelectionTarget?.("dropoff")}
+            className={
+              mapSelectionTarget === "dropoff"
+                ? "h-11 rounded-[14px] bg-white text-sm font-semibold text-[#008C78] shadow-soft"
+                : "h-11 rounded-[14px] text-sm font-semibold text-[#4B5563]"
+            }
+          >
+            Map sets dropoff
+          </button>
+        </div>
+
         <LocationSearchInput
           label="Pickup"
           value={pickup}

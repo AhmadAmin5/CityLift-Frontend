@@ -36,6 +36,20 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { ErrorState } from "@/common/ErrorState";
+import { LoadingState } from "@/common/LoadingState";
+import { getApiErrorMessage } from "@/api/client";
+import { useCancelRide } from "@/hooks/rides/useCancelRide";
+import { useRide } from "@/hooks/rides/useRide";
+import { useRideLive } from "@/hooks/rides/useRideLive";
+import { useRideRoute } from "@/hooks/rides/useRideRoute";
+import { useArriveRide } from "@/hooks/rides/useRideActions";
+import {
+  getLiveStateFromResponse,
+  getRideFromResponse,
+  getRouteFromResponse,
+} from "@/utils/apiShapes";
+import { toDriverTripView } from "@/utils/rideUi";
 
 const demoTrip = {
   ride_id: "ride_123",
@@ -334,20 +348,57 @@ export default function DriverNavigationToPickupPage() {
   const { ride_id } = useParams();
 
   const [navigationMode, setNavigationMode] = useState("in_app");
+  const rideQuery = useRide(ride_id);
+  const liveQuery = useRideLive(ride_id);
+  const routeQuery = useRideRoute(ride_id, "driver_to_pickup");
+  const arriveMutation = useArriveRide(ride_id);
+  const cancelRideMutation = useCancelRide(ride_id);
 
-  function handleArrivedUiOnly() {
-    navigate(`/driver/rides/${ride_id || demoTrip.ride_id}/arrived`);
+  const ride = getRideFromResponse(rideQuery.data);
+  const liveState = getLiveStateFromResponse(liveQuery.data);
+  const route = getRouteFromResponse(routeQuery.data);
+  const trip = toDriverTripView(ride, liveState, route);
+  const rideId = ride_id || trip.ride_id;
+
+  async function handleArrived() {
+    try {
+      await arriveMutation.mutateAsync();
+      navigate(`/driver/rides/${rideId}/arrived`);
+    } catch (error) {
+      window.alert(getApiErrorMessage(error));
+    }
   }
 
-  function handleCancelUiOnly() {
-    navigate("/driver/home", { replace: true });
+  async function handleCancelRide() {
+    try {
+      await cancelRideMutation.mutateAsync("Driver cancelled before pickup");
+      navigate("/driver/home", { replace: true });
+    } catch (error) {
+      window.alert(getApiErrorMessage(error));
+    }
+  }
+
+  if (rideQuery.isLoading || liveQuery.isLoading || routeQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <LoadingState label="Loading pickup navigation..." />
+      </main>
+    );
+  }
+
+  if (rideQuery.isError || !ride) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <ErrorState message="Ride not found. Return home and try again." />
+      </main>
+    );
   }
 
   return (
     <main className="min-h-screen bg-white">
       <section className="mx-auto min-h-screen w-full max-w-[430px] bg-white">
         <div className="relative h-[47vh] min-h-[410px]">
-          <NavigationMapMock trip={demoTrip} />
+          <NavigationMapMock trip={trip} />
 
           <header className="absolute left-0 right-0 top-0 z-40 px-5 pt-6">
             <div className="flex items-center justify-between">
@@ -362,7 +413,7 @@ export default function DriverNavigationToPickupPage() {
               </Button>
 
               <Badge className="rounded-full bg-white px-3 py-2 text-[#101820] shadow-soft hover:bg-white">
-                Ride {ride_id || "demo"}
+                Ride {rideId}
               </Badge>
             </div>
 
@@ -377,7 +428,7 @@ export default function DriverNavigationToPickupPage() {
                     Navigate to pickup
                   </p>
                   <p className="truncate text-sm font-bold text-[#101820]">
-                    {demoTrip.pickup.address}
+                    {trip.pickup.address}
                   </p>
                 </div>
               </div>
@@ -404,7 +455,7 @@ export default function DriverNavigationToPickupPage() {
           </div>
 
           <div className="mt-5 space-y-4">
-            <PickupProgressCard trip={demoTrip} />
+            <PickupProgressCard trip={trip} />
 
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -449,9 +500,9 @@ export default function DriverNavigationToPickupPage() {
               </Card>
             ) : null}
 
-            <RiderInfoCard trip={demoTrip} />
-            <RouteSummaryCard trip={demoTrip} />
-            <TripMetaCard trip={demoTrip} />
+            <RiderInfoCard trip={trip} />
+            <RouteSummaryCard trip={trip} />
+            <TripMetaCard trip={trip} />
 
             <Card className="rounded-[24px] border-[#E1E5EA] bg-white p-4 shadow-sm">
               <div className="flex items-center gap-3">
@@ -472,7 +523,7 @@ export default function DriverNavigationToPickupPage() {
 
             <Button
               type="button"
-              onClick={handleArrivedUiOnly}
+              onClick={handleArrived}
               className="h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60]"
             >
               <CheckCircle2 className="mr-2 h-5 w-5" />
@@ -498,8 +549,7 @@ export default function DriverNavigationToPickupPage() {
                   </AlertDialogTitle>
 
                   <AlertDialogDescription className="text-base leading-6 text-[#4B5563]">
-                    This is UI-only for now. Later this action will call the ride
-                    cancellation endpoint and notify the rider.
+                    This will cancel the ride and notify the rider.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
 
@@ -509,7 +559,7 @@ export default function DriverNavigationToPickupPage() {
                   </AlertDialogCancel>
 
                   <AlertDialogAction
-                    onClick={handleCancelUiOnly}
+                    onClick={handleCancelRide}
                     className="h-12 rounded-[14px] bg-[#DC2626] text-base font-semibold text-white hover:bg-[#B91C1C]"
                   >
                     Cancel ride

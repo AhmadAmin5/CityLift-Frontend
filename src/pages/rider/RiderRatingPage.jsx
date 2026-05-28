@@ -19,6 +19,13 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { ErrorState } from "@/common/ErrorState";
+import { LoadingState } from "@/common/LoadingState";
+import { getApiErrorMessage } from "@/api/client";
+import { useRide } from "@/hooks/rides/useRide";
+import { useSubmitRideRating } from "@/hooks/rides/useRideActions";
+import { getRideFromResponse } from "@/utils/apiShapes";
+import { toRatingDriverView } from "@/utils/rideUi";
 
 const demoDriver = {
   name: "Ahmed Raza",
@@ -288,6 +295,8 @@ function ThankYouState({ onDone }) {
 export default function RiderRatingPage() {
   const navigate = useNavigate();
   const { ride_id } = useParams();
+  const rideQuery = useRide(ride_id);
+  const ratingMutation = useSubmitRideRating(ride_id);
 
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
@@ -296,6 +305,8 @@ export default function RiderRatingPage() {
     "Polite driver",
   ]);
   const [submitted, setSubmitted] = useState(false);
+  const ride = getRideFromResponse(rideQuery.data);
+  const driver = toRatingDriverView(ride);
 
   const canSubmit = rating >= 1;
 
@@ -314,8 +325,20 @@ export default function RiderRatingPage() {
     });
   }
 
-  function handleSubmitUiOnly() {
-    setSubmitted(true);
+  async function handleSubmitRating() {
+    try {
+      const feedbackText = selectedFeedback.length
+        ? `${selectedFeedback.join(", ")}${comment ? ` - ${comment}` : ""}`
+        : comment;
+
+      await ratingMutation.mutateAsync({
+        rating,
+        comment: feedbackText || null,
+      });
+      setSubmitted(true);
+    } catch (error) {
+      window.alert(getApiErrorMessage(error));
+    }
   }
 
   function goHome() {
@@ -326,6 +349,22 @@ export default function RiderRatingPage() {
     return <ThankYouState onDone={goHome} />;
   }
 
+  if (rideQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <LoadingState label="Loading rating screen..." />
+      </main>
+    );
+  }
+
+  if (rideQuery.isError || !ride) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <ErrorState message="Ride not found. Return home and try again." />
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-white">
       <section className="mx-auto min-h-screen w-full max-w-[430px] bg-white px-6 pb-8 pt-8">
@@ -333,7 +372,7 @@ export default function RiderRatingPage() {
           <button
             type="button"
             onClick={() =>
-              navigate(`/rider/ride/${ride_id || "demo_ride_001"}/receipt`)
+              navigate(`/rider/ride/${ride_id}/receipt`)
             }
             className="flex h-11 w-11 items-center justify-center rounded-full border border-[#E1E5EA] bg-white text-[#101820]"
             aria-label="Back to receipt"
@@ -352,10 +391,10 @@ export default function RiderRatingPage() {
         </header>
 
         <div className="mt-8 space-y-4">
-          <DriverRatingHero driver={demoDriver} />
+          <DriverRatingHero driver={driver} />
           <StarRating rating={rating} onChange={setRating} />
 
-          <TripMiniSummary driver={demoDriver} />
+          <TripMiniSummary driver={driver} />
 
           <FeedbackChips
             selectedFeedback={selectedFeedback}
@@ -388,7 +427,7 @@ export default function RiderRatingPage() {
           <Button
             type="button"
             disabled={!canSubmit}
-            onClick={handleSubmitUiOnly}
+            onClick={handleSubmitRating}
             className="h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60] disabled:bg-gray-300 disabled:text-gray-500"
           >
             <Star className="mr-2 h-5 w-5 fill-white" />

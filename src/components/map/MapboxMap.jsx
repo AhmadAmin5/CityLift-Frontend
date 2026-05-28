@@ -16,10 +16,46 @@ function MockMapFallback({
   nearbyDrivers = [],
   surgeZones = [],
   route,
+  locationSelectionTarget = "pickup",
+  onPickupChange,
+  onLocationChange,
   label = "Mock map",
 }) {
+  function selectLocation(location) {
+    if (onLocationChange) {
+      onLocationChange(locationSelectionTarget, location);
+      return;
+    }
+
+    onPickupChange?.(location);
+  }
+
+  function handleMapClick(event) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const xRatio = (event.clientX - rect.left) / rect.width;
+    const yRatio = (event.clientY - rect.top) / rect.height;
+
+    selectLocation({
+      latitude: 31.56 - yRatio * 0.13,
+      longitude: 74.25 + xRatio * 0.2,
+    });
+  }
+
   return (
-    <div className="relative h-full min-h-[360px] overflow-hidden rounded-b-[32px] bg-[#EAF2F0]">
+    <div
+      className="relative h-full min-h-[360px] overflow-hidden rounded-b-[32px] bg-[#EAF2F0]"
+      onClick={handleMapClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          selectLocation({
+            latitude: 31.5204,
+            longitude: 74.3587,
+          });
+        }
+      }}
+    >
       <div className="absolute inset-0 opacity-60">
         <div className="absolute left-[-20%] top-12 h-28 w-[140%] rotate-[-12deg] rounded-full border-[18px] border-white/80" />
         <div className="absolute left-[-10%] top-44 h-24 w-[120%] rotate-[18deg] rounded-full border-[14px] border-white/70" />
@@ -90,7 +126,7 @@ function MockMapFallback({
           {pickup?.address || "Select pickup"}
         </p>
         <p className="mt-1 truncate text-xs text-[#4B5563]">
-          {dropoff?.address || "Choose your destination to estimate fare"}
+          {dropoff?.address || "Tap map for pickup, search below for dropoff"}
         </p>
       </div>
     </div>
@@ -104,13 +140,17 @@ export function MapboxMap({
   surgeZones = [],
   mapConfig,
   route,
+  locationSelectionTarget = "pickup",
   onPickupChange,
+  onLocationChange,
 }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const pickupMarkerRef = useRef(null);
   const dropoffMarkerRef = useRef(null);
   const driverMarkersRef = useRef([]);
+  const locationSelectionTargetRef = useRef(locationSelectionTarget);
+  const onLocationChangeRef = useRef(onLocationChange);
   const [mapError, setMapError] = useState(null);
 
   const token = mapConfig?.mapbox_public_token || mapConfig?.public_token;
@@ -123,6 +163,11 @@ export function MapboxMap({
 
     return DEFAULT_CENTER;
   }, [pickup]);
+
+  useEffect(() => {
+    locationSelectionTargetRef.current = locationSelectionTarget;
+    onLocationChangeRef.current = onLocationChange;
+  }, [locationSelectionTarget, onLocationChange]);
 
   useEffect(() => {
     setMapError(null);
@@ -138,6 +183,7 @@ export function MapboxMap({
         center,
         zoom: mapConfig?.default_zoom || 13,
         attributionControl: false,
+        performanceMetricsCollection: false,
       });
     } catch (error) {
       setMapError(error);
@@ -158,13 +204,27 @@ export function MapboxMap({
     );
 
     mapRef.current.on("click", (event) => {
-      onPickupChange?.({
+      const location = {
         latitude: event.lngLat.lat,
         longitude: event.lngLat.lng,
-      });
+      };
+
+      if (onLocationChangeRef.current) {
+        onLocationChangeRef.current(locationSelectionTargetRef.current, location);
+      } else {
+        onPickupChange?.(location);
+      }
     });
 
     mapRef.current.on("error", (event) => {
+      const message = String(
+        event?.error?.message || event?.error?.url || event?.error || ""
+      );
+
+      if (message.includes("events.mapbox.com") || message.includes("events/v2")) {
+        return;
+      }
+
       setMapError(event?.error || new Error("Mapbox failed to load"));
     });
 
@@ -450,6 +510,9 @@ export function MapboxMap({
         nearbyDrivers={nearbyDrivers}
         surgeZones={surgeZones}
         route={route}
+        locationSelectionTarget={locationSelectionTarget}
+        onPickupChange={onPickupChange}
+        onLocationChange={onLocationChange}
         label={mapError ? "Map unavailable" : "Mock map"}
       />
     );

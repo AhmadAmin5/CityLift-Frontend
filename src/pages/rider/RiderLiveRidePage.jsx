@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -34,38 +34,19 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-
-const demoRide = {
-  driver: {
-    name: "Ahmed Raza",
-    rating: 4.8,
-    total_rides: 215,
-    phone: "+92 300 9876543",
-  },
-  vehicle: {
-    make: "Toyota",
-    model: "Corolla",
-    color: "White",
-    plate_number: "LEA-1234",
-  },
-  pickup: {
-    address: "Gulberg, Lahore",
-  },
-  dropoff: {
-    address: "Johar Town, Lahore",
-  },
-  fare: {
-    currency: "PKR",
-    estimated_min_fare: 630,
-    estimated_max_fare: 770,
-  },
-  live: {
-    eta_min: 5,
-    distance_remaining_km: 1.4,
-    total_distance_km: 12.4,
-    traffic_delay_min: 7,
-  },
-};
+import { ErrorState } from "@/common/ErrorState";
+import { LoadingState } from "@/common/LoadingState";
+import { getApiErrorMessage } from "@/api/client";
+import { useCancelRide } from "@/hooks/rides/useCancelRide";
+import { useRide } from "@/hooks/rides/useRide";
+import { useRideLive } from "@/hooks/rides/useRideLive";
+import { useRideRoute } from "@/hooks/rides/useRideRoute";
+import { useRideSocket } from "@/hooks/socket/useRideSocket";
+import {
+  getLiveStateFromResponse,
+  getRideFromResponse,
+} from "@/utils/apiShapes";
+import { toLiveRideView } from "@/utils/rideUi";
 
 const statusCopy = {
   accepted: {
@@ -345,25 +326,88 @@ export default function RiderLiveRidePage() {
   const navigate = useNavigate();
   const { ride_id } = useParams();
   const [status, setStatus] = useState("accepted");
+  const [socketLiveState, setSocketLiveState] = useState(null);
+  const rideQuery = useRide(ride_id);
+  const liveQuery = useRideLive(ride_id);
+  useRideRoute(ride_id);
+  const cancelRideMutation = useCancelRide(ride_id);
 
-  const canCancel = status === "accepted" || status === "arrived";
-  const isCompleted = status === "completed";
+  const ride = getRideFromResponse(rideQuery.data);
+  const apiLiveState = getLiveStateFromResponse(liveQuery.data);
+  const liveState = socketLiveState || apiLiveState;
+  const rideView = toLiveRideView(ride, liveState);
+  const normalizedStatus = statusCopy[status] ? status : "accepted";
+
+  useEffect(() => {
+    if (ride?.status && statusCopy[ride.status]) {
+      setStatus(ride.status);
+    }
+  }, [ride?.status]);
+
+  useRideSocket({
+    rideId: ride_id,
+    handlers: {
+      onStatusUpdate: (payload) => {
+        if (payload?.ride_id !== ride_id || !statusCopy[payload.status]) return;
+        setStatus(payload.status);
+        if (payload.status === "completed") {
+          navigate(`/rider/ride/${ride_id}/receipt`);
+        }
+      },
+      onLiveUpdate: (payload) => {
+        if (payload?.ride_id === ride_id) {
+          setSocketLiveState(payload);
+          if (statusCopy[payload.status]) setStatus(payload.status);
+        }
+      },
+      onCancelled: (payload) => {
+        if (!payload?.ride_id || payload.ride_id === ride_id) {
+          navigate("/rider/home", { replace: true });
+        }
+      },
+    },
+    enabled: Boolean(ride_id),
+  });
+
+  const canCancel = normalizedStatus === "accepted" || normalizedStatus === "arrived";
+  const isCompleted = normalizedStatus === "completed";
 
   function handlePrimaryAction() {
     if (isCompleted) {
-      navigate(`/rider/ride/${ride_id || "demo_ride_001"}/receipt`);
+      navigate(`/rider/ride/${ride_id}/receipt`);
     }
   }
 
-  function handleCancelUiOnly() {
-    navigate("/rider/home", { replace: true });
+  async function handleCancelRide() {
+    try {
+      await cancelRideMutation.mutateAsync("Rider cancelled live ride");
+      navigate("/rider/home", { replace: true });
+    } catch (error) {
+      window.alert(getApiErrorMessage(error));
+    }
+  }
+
+  if (rideQuery.isLoading || liveQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <LoadingState label="Loading live ride..." />
+      </main>
+    );
+  }
+
+  if (rideQuery.isError || !ride) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <ErrorState message="Ride not found. Return home and try again." />
+      </main>
+    );
   }
 
   return (
     <main className="min-h-screen bg-white">
       <section className="mx-auto min-h-screen w-full max-w-[430px] bg-white">
         <div className="relative h-[45vh] min-h-[390px]">
-          <LiveMapMock status={status} />
+          <LiveMapMock status={normalizedStatus} />
 
           <header className="absolute left-0 right-0 top-0 z-40 px-5 pt-6">
             <div className="flex items-center justify-between">
@@ -378,14 +422,14 @@ export default function RiderLiveRidePage() {
                       RideFlow
                     </p>
                     <p className="max-w-[170px] truncate text-sm font-bold text-[#101820]">
-                      {statusCopy[status].badge}
+                      {statusCopy[normalizedStatus].badge}
                     </p>
                   </div>
                 </div>
               </div>
 
               <Badge className="rounded-full bg-white px-3 py-2 text-[#101820] shadow-soft hover:bg-white">
-                ID {ride_id || "demo"}
+                ID {ride_id}
               </Badge>
             </div>
           </header>
@@ -394,7 +438,7 @@ export default function RiderLiveRidePage() {
         <div className="-mt-7 relative z-50 rounded-t-[28px] border border-[#E1E5EA] bg-white px-6 pb-6 pt-4 shadow-sheet">
           <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#D7DCE2]" />
 
-          <Tabs value={status} onValueChange={setStatus} className="mb-5">
+          <Tabs value={normalizedStatus} onValueChange={setStatus} className="mb-5">
             <TabsList className="grid h-12 w-full grid-cols-4 rounded-[16px] bg-[#F7F8FA] p-1">
               <TabsTrigger
                 value="accepted"
@@ -426,10 +470,10 @@ export default function RiderLiveRidePage() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-[30px] font-bold leading-9 tracking-[-0.04em] text-[#101820]">
-                {statusCopy[status].title}
+                {statusCopy[normalizedStatus].title}
               </h1>
               <p className="mt-2 text-base leading-6 text-[#4B5563]">
-                {statusCopy[status].subtitle}
+                {statusCopy[normalizedStatus].subtitle}
               </p>
             </div>
 
@@ -443,11 +487,11 @@ export default function RiderLiveRidePage() {
           </div>
 
           <div className="mt-5 space-y-4">
-            <RideProgressCard ride={demoRide} status={status} />
-            <DriverInfoCard ride={demoRide} />
-            <RouteSummaryCard ride={demoRide} />
+            <RideProgressCard ride={rideView} status={normalizedStatus} />
+            <DriverInfoCard ride={rideView} />
+            <RouteSummaryCard ride={rideView} />
 
-            {status === "arrived" ? (
+            {normalizedStatus === "arrived" ? (
               <Card className="rounded-[24px] border-[#F59E0B]/30 bg-[#FFF7ED] p-4 shadow-none">
                 <div className="flex gap-3">
                   <AlertTriangle className="mt-0.5 h-5 w-5 text-[#F59E0B]" />
@@ -476,7 +520,7 @@ export default function RiderLiveRidePage() {
                   View receipt
                 </>
               ) : (
-                statusCopy[status].primaryAction
+                statusCopy[normalizedStatus].primaryAction
               )}
             </Button>
 
@@ -499,8 +543,7 @@ export default function RiderLiveRidePage() {
                       Cancel this ride?
                     </AlertDialogTitle>
                     <AlertDialogDescription className="text-base leading-6 text-[#4B5563]">
-                      This is UI-only for now. Later, this action will call the
-                      cancel ride endpoint and update the live ride state.
+                      This will cancel the ride and notify the driver.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
 
@@ -510,7 +553,7 @@ export default function RiderLiveRidePage() {
                     </AlertDialogCancel>
 
                     <AlertDialogAction
-                      onClick={handleCancelUiOnly}
+                      onClick={handleCancelRide}
                       className="h-12 rounded-[14px] bg-[#DC2626] text-base font-semibold text-white hover:bg-[#B91C1C]"
                     >
                       Cancel ride

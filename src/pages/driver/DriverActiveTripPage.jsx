@@ -35,6 +35,22 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { ErrorState } from "@/common/ErrorState";
+import { LoadingState } from "@/common/LoadingState";
+import { getApiErrorMessage } from "@/api/client";
+import { useRide } from "@/hooks/rides/useRide";
+import { useRideLive } from "@/hooks/rides/useRideLive";
+import { useRideRoute } from "@/hooks/rides/useRideRoute";
+import {
+  useCompleteRide,
+  useSubmitRideTracking,
+} from "@/hooks/rides/useRideActions";
+import {
+  getLiveStateFromResponse,
+  getRideFromResponse,
+  getRouteFromResponse,
+} from "@/utils/apiShapes";
+import { toDriverTripView } from "@/utils/rideUi";
 
 const demoRide = {
   ride_id: "ride_123",
@@ -377,22 +393,70 @@ export default function DriverActiveTripPage() {
   const { ride_id } = useParams();
 
   const [navigationMode, setNavigationMode] = useState("in_app");
+  const rideQuery = useRide(ride_id);
+  const liveQuery = useRideLive(ride_id);
+  const routeQuery = useRideRoute(ride_id, "pickup_to_dropoff");
+  const trackingMutation = useSubmitRideTracking(ride_id);
+  const completeRideMutation = useCompleteRide(ride_id);
 
-  const rideId = ride_id || demoRide.ride_id;
+  const rideData = getRideFromResponse(rideQuery.data);
+  const liveState = getLiveStateFromResponse(liveQuery.data);
+  const route = getRouteFromResponse(routeQuery.data);
+  const ride = toDriverTripView(rideData, liveState, route);
+  const rideId = ride_id || ride.ride_id;
 
-  function handleCompleteRideUiOnly() {
-    navigate(`/driver/rides/${rideId}/summary`);
+  async function handleCompleteRide() {
+    try {
+      await trackingMutation.mutateAsync({
+        latitude: rideData?.dropoff?.latitude || 31.4697,
+        longitude: rideData?.dropoff?.longitude || 74.2728,
+        speed_kmph: 0,
+        heading: 90,
+        traffic_level: "medium",
+        eta_min: 1,
+        distance_remaining_km: 0.2,
+      });
+
+      await completeRideMutation.mutateAsync({
+        actual_distance_km: rideData?.fare?.estimated_distance_km || 12.4,
+        actual_duration_min: rideData?.fare?.estimated_duration_min || 33,
+        actual_traffic_delay_min:
+          rideData?.fare?.estimated_traffic_delay_min || 7,
+        waiting_time_min: rideData?.fare?.waiting_time_min || 0,
+        route_changed: false,
+      });
+
+      navigate(`/driver/rides/${rideId}/summary`);
+    } catch (error) {
+      window.alert(getApiErrorMessage(error));
+    }
   }
 
   function handleEmergencyCancelUiOnly() {
     navigate("/driver/home", { replace: true });
   }
 
+  if (rideQuery.isLoading || liveQuery.isLoading || routeQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <LoadingState label="Loading active trip..." />
+      </main>
+    );
+  }
+
+  if (rideQuery.isError || !rideData) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <ErrorState message="Ride not found. Return home and try again." />
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-white">
       <section className="mx-auto min-h-screen w-full max-w-[430px] bg-white">
         <div className="relative h-[48vh] min-h-[420px]">
-          <ActiveTripMapMock ride={demoRide} />
+          <ActiveTripMapMock ride={ride} />
 
           <header className="absolute left-0 right-0 top-0 z-40 px-5 pt-6">
             <div className="flex items-center justify-between">
@@ -422,7 +486,7 @@ export default function DriverActiveTripPage() {
                     Active trip
                   </p>
                   <p className="truncate text-sm font-bold text-[#101820]">
-                    {demoRide.dropoff.address}
+                    {ride.dropoff.address}
                   </p>
                 </div>
               </div>
@@ -449,7 +513,7 @@ export default function DriverActiveTripPage() {
           </div>
 
           <div className="mt-5 space-y-4">
-            <TripProgressCard ride={demoRide} />
+            <TripProgressCard ride={ride} />
 
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -494,15 +558,15 @@ export default function DriverActiveTripPage() {
               </Card>
             ) : null}
 
-            <RiderInfoCard ride={demoRide} />
-            <RouteSummaryCard ride={demoRide} />
-            <DropoffCard ride={demoRide} />
-            <FarePreviewCard ride={demoRide} />
+            <RiderInfoCard ride={ride} />
+            <RouteSummaryCard ride={ride} />
+            <DropoffCard ride={ride} />
+            <FarePreviewCard ride={ride} />
             <CompletionReminderCard />
 
             <Button
               type="button"
-              onClick={handleCompleteRideUiOnly}
+              onClick={handleCompleteRide}
               className="h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60]"
             >
               <CheckCircle2 className="mr-2 h-5 w-5" />

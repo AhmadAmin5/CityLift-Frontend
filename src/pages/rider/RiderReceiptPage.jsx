@@ -22,6 +22,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { ErrorState } from "@/common/ErrorState";
+import { LoadingState } from "@/common/LoadingState";
+import { useRide } from "@/hooks/rides/useRide";
+import { useRideReceipt } from "@/hooks/rides/useRideReceipt";
+import { getReceiptFromResponse, getRideFromResponse } from "@/utils/apiShapes";
+import { toReceiptView } from "@/utils/rideUi";
 
 const demoReceipt = {
   receipt_number: "RF-00042",
@@ -307,9 +313,30 @@ function PaymentCard({ receipt }) {
 export default function RiderReceiptPage() {
   const navigate = useNavigate();
   const { ride_id } = useParams();
+  const rideQuery = useRide(ride_id);
+  const receiptQuery = useRideReceipt(ride_id);
+  const rideData = getRideFromResponse(rideQuery.data);
+  const receiptData = getReceiptFromResponse(receiptQuery.data);
+  const receipt = toReceiptView(receiptData, rideData);
 
   function goToRating() {
-    navigate(`/rider/ride/${ride_id || "demo_ride_001"}/rating`);
+    navigate(`/rider/ride/${ride_id}/rating`);
+  }
+
+  if (rideQuery.isLoading || receiptQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <LoadingState label="Loading receipt..." />
+      </main>
+    );
+  }
+
+  if (rideQuery.isError || !rideData) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <ErrorState message="Receipt not found. Return home and try again." />
+      </main>
+    );
   }
 
   return (
@@ -340,11 +367,11 @@ export default function RiderReceiptPage() {
         </header>
 
         <div className="mt-8 space-y-4">
-          <ReceiptHero receipt={demoReceipt} />
-          <TripSummaryCard receipt={demoReceipt} />
-          <DriverReceiptCard receipt={demoReceipt} />
-          <FareBreakdownCard receipt={demoReceipt} />
-          <PaymentCard receipt={demoReceipt} />
+          <ReceiptHero receipt={receipt} />
+          <TripSummaryCard receipt={receipt} />
+          <DriverReceiptCard receipt={receipt} />
+          <FareBreakdownCard receipt={receipt} />
+          <PaymentCard receipt={receipt} />
 
           <div className="grid grid-cols-2 gap-3">
             <Button

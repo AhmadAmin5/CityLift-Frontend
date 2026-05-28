@@ -37,6 +37,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { ErrorState } from "@/common/ErrorState";
+import { LoadingState } from "@/common/LoadingState";
+import { getApiErrorMessage } from "@/api/client";
+import { useCancelRide } from "@/hooks/rides/useCancelRide";
+import { useRide } from "@/hooks/rides/useRide";
+import { useStartRide } from "@/hooks/rides/useRideActions";
+import { getRideFromResponse } from "@/utils/apiShapes";
+import { toDriverTripView } from "@/utils/rideUi";
 
 const demoRide = {
   ride_id: "ride_123",
@@ -380,24 +388,57 @@ export default function DriverArrivedWaitingPage() {
   const { ride_id } = useParams();
 
   const [riderNotified, setRiderNotified] = useState(true);
+  const rideQuery = useRide(ride_id);
+  const startRideMutation = useStartRide(ride_id);
+  const cancelRideMutation = useCancelRide(ride_id);
 
-  function handleStartRideUiOnly() {
-    navigate(`/driver/rides/${ride_id || demoRide.ride_id}/active`);
+  const rideData = getRideFromResponse(rideQuery.data);
+  const ride = toDriverTripView(rideData);
+  const rideId = ride_id || ride.ride_id;
+
+  async function handleStartRide() {
+    try {
+      await startRideMutation.mutateAsync();
+      navigate(`/driver/rides/${rideId}/active`);
+    } catch (error) {
+      window.alert(getApiErrorMessage(error));
+    }
   }
 
-  function handleCancelUiOnly() {
-    navigate("/driver/home", { replace: true });
+  async function handleCancelRide() {
+    try {
+      await cancelRideMutation.mutateAsync("Driver cancelled after arrival");
+      navigate("/driver/home", { replace: true });
+    } catch (error) {
+      window.alert(getApiErrorMessage(error));
+    }
   }
 
   function handleNotifyAgainUiOnly() {
     setRiderNotified(true);
   }
 
+  if (rideQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <LoadingState label="Loading arrived ride..." />
+      </main>
+    );
+  }
+
+  if (rideQuery.isError || !rideData) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <ErrorState message="Ride not found. Return home and try again." />
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-white">
       <section className="mx-auto min-h-screen w-full max-w-[430px] bg-white">
         <div className="relative h-[47vh] min-h-[410px]">
-          <ArrivedMapMock ride={demoRide} />
+          <ArrivedMapMock ride={ride} />
 
           <header className="absolute left-0 right-0 top-0 z-40 px-5 pt-6">
             <div className="flex items-center justify-between">
@@ -406,7 +447,7 @@ export default function DriverArrivedWaitingPage() {
                 size="icon"
                 variant="outline"
                 onClick={() =>
-                  navigate(`/driver/rides/${ride_id || demoRide.ride_id}/navigation`)
+                  navigate(`/driver/rides/${rideId}/navigation`)
                 }
                 className="h-11 w-11 rounded-full border-white/70 bg-white/95 text-[#101820] shadow-soft"
               >
@@ -414,7 +455,7 @@ export default function DriverArrivedWaitingPage() {
               </Button>
 
               <Badge className="rounded-full bg-white px-3 py-2 text-[#101820] shadow-soft hover:bg-white">
-                Ride {ride_id || "demo"}
+                Ride {rideId}
               </Badge>
             </div>
 
@@ -429,7 +470,7 @@ export default function DriverArrivedWaitingPage() {
                     Driver arrived
                   </p>
                   <p className="truncate text-sm font-bold text-[#101820]">
-                    Waiting for {demoRide.rider.name}
+                    Waiting for {ride.rider.name}
                   </p>
                 </div>
               </div>
@@ -457,7 +498,7 @@ export default function DriverArrivedWaitingPage() {
           </div>
 
           <div className="mt-5 space-y-4">
-            <WaitingTimerCard ride={demoRide} />
+            <WaitingTimerCard ride={ride} />
 
             {riderNotified ? (
               <Card className="rounded-[22px] border-[#E1E5EA] bg-[#F7F8FA] p-4 shadow-none">
@@ -478,14 +519,14 @@ export default function DriverArrivedWaitingPage() {
               </Card>
             ) : null}
 
-            <RiderInfoCard ride={demoRide} />
-            <PickupLocationCard ride={demoRide} />
-            <TripPreviewCard ride={demoRide} />
+            <RiderInfoCard ride={ride} />
+            <PickupLocationCard ride={ride} />
+            <TripPreviewCard ride={ride} />
             <SafetyReminderCard />
 
             <Button
               type="button"
-              onClick={handleStartRideUiOnly}
+              onClick={handleStartRide}
               className="h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60]"
             >
               <Navigation className="mr-2 h-5 w-5" />
@@ -522,8 +563,7 @@ export default function DriverArrivedWaitingPage() {
                     </AlertDialogTitle>
 
                     <AlertDialogDescription className="text-base leading-6 text-[#4B5563]">
-                      This is UI-only for now. Later this action can call the
-                      cancellation endpoint and notify the rider.
+                      This will cancel the ride and notify the rider.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
 
@@ -533,7 +573,7 @@ export default function DriverArrivedWaitingPage() {
                     </AlertDialogCancel>
 
                     <AlertDialogAction
-                      onClick={handleCancelUiOnly}
+                      onClick={handleCancelRide}
                       className="h-12 rounded-[14px] bg-[#DC2626] text-base font-semibold text-white hover:bg-[#B91C1C]"
                     >
                       Cancel ride

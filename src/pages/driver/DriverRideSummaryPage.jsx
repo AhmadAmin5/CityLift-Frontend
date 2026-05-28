@@ -23,6 +23,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { ErrorState } from "@/common/ErrorState";
+import { LoadingState } from "@/common/LoadingState";
+import { useRide } from "@/hooks/rides/useRide";
+import { useRideReceipt } from "@/hooks/rides/useRideReceipt";
+import { getReceiptFromResponse, getRideFromResponse } from "@/utils/apiShapes";
+import { toDriverSummaryView } from "@/utils/rideUi";
 
 const demoSummary = {
   ride_id: "ride_123",
@@ -390,8 +396,29 @@ function PaymentStatusCard({ summary }) {
 export default function DriverRideSummaryPage() {
   const navigate = useNavigate();
   const { ride_id } = useParams();
+  const rideQuery = useRide(ride_id);
+  const receiptQuery = useRideReceipt(ride_id);
 
-  const rideId = ride_id || demoSummary.ride_id;
+  const rideData = getRideFromResponse(rideQuery.data);
+  const receiptData = getReceiptFromResponse(receiptQuery.data);
+  const summary = toDriverSummaryView(receiptData, rideData);
+  const rideId = ride_id || summary.ride_id;
+
+  if (rideQuery.isLoading || receiptQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <LoadingState label="Loading ride summary..." />
+      </main>
+    );
+  }
+
+  if (rideQuery.isError || !rideData) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <ErrorState message="Ride summary not found." />
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-white">
@@ -418,7 +445,7 @@ export default function DriverRideSummaryPage() {
         </header>
 
         <div className="mt-8 space-y-4">
-          <SummaryHero summary={demoSummary} />
+          <SummaryHero summary={summary} />
 
           <CompletedMapMock />
 
@@ -433,7 +460,7 @@ export default function DriverRideSummaryPage() {
                   Ride completed
                 </p>
                 <p className="mt-0.5 text-xs text-[#4B5563]">
-                  {demoSummary.completed_at}
+                  {summary.completed_at}
                 </p>
               </div>
 
@@ -443,11 +470,11 @@ export default function DriverRideSummaryPage() {
             </div>
           </Card>
 
-          <TripStatsCard summary={demoSummary} />
-          <RiderCard summary={demoSummary} />
-          <RouteSummaryCard summary={demoSummary} />
-          <EarningsBreakdownCard summary={demoSummary} />
-          <PaymentStatusCard summary={demoSummary} />
+          <TripStatsCard summary={summary} />
+          <RiderCard summary={summary} />
+          <RouteSummaryCard summary={summary} />
+          <EarningsBreakdownCard summary={summary} />
+          <PaymentStatusCard summary={summary} />
 
           <div className="grid grid-cols-2 gap-3">
             <Button

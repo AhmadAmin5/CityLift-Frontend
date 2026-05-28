@@ -5,7 +5,7 @@ export function unwrapLocationResponse(data) {
     data.location ||
     data.place ||
     data.result ||
-    data.address ||
+    (typeof data.address === "object" ? data.address : null) ||
     data.data ||
     data
   );

@@ -10,6 +10,7 @@ import {
   FileCheck2,
   Flame,
   Gauge,
+  LogOut,
   MapPin,
   Navigation,
   Phone,
@@ -21,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { steeringWheel } from "@lucide/lab";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +37,24 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { MapboxMap } from "@/components/map/MapboxMap";
+import { ErrorState } from "@/common/ErrorState";
+import { LoadingState } from "@/common/LoadingState";
+import { getApiErrorMessage } from "@/api/client";
+import {
+  useAcceptRideOffer,
+  useDeclineRideOffer,
+  useDriverAvailability,
+  useDriverLocation,
+} from "@/hooks/driver/useDriverActions";
+import { useDriverOffers } from "@/hooks/driver/useDriverOffers";
+import { useDriverProfile } from "@/hooks/driver/useDriverProfile";
+import { useMapConfig } from "@/hooks/maps/useMapConfig";
+import { useSurgeZones } from "@/hooks/maps/useSurgeZones";
+import { useRideSocket } from "@/hooks/socket/useRideSocket";
+import { queryKeys } from "@/query/queryKeys";
+import { clearAccessToken } from "@/utils/tokenStorage";
+import { getDriverFromResponse } from "@/utils/apiShapes";
 
 const demoDriver = {
   name: "Ahmed Raza",
@@ -115,6 +135,67 @@ const demoOffer = {
   estimated_duration_min: 33,
   rider_note_to_driver: "Call me when arrived",
 };
+
+function getInitials(name = "Driver") {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+}
+
+function toDriverHomeView(driverData) {
+  const driver = getDriverFromResponse(driverData) || demoDriver;
+  const user = driver.user || {};
+  const name = user.name || driver.name || demoDriver.name;
+
+  return {
+    ...demoDriver,
+    ...driver,
+    name,
+    initials: getInitials(name),
+    active_vehicle: driver.active_vehicle || demoDriver.active_vehicle,
+    documents: demoDriver.documents,
+  };
+}
+
+function toDemandZones(zones = []) {
+  return zones.map((zone, index) => ({
+    ...zone,
+    left: index % 2 === 0 ? "20%" : "56%",
+    top: index % 2 === 0 ? "32%" : "50%",
+    size: 120 + Number(zone.surge_multiplier || 1) * 20,
+  }));
+}
+
+function toOfferView(offer) {
+  if (!offer) return null;
+  return {
+    ...demoOffer,
+    ...offer,
+    ride_id: offer.ride_id || offer.ride?.id,
+    rider: {
+      name: "Ali Khan",
+      initials: "AK",
+      rating: offer.ride?.rider_rating || 5.0,
+    },
+    pickup: offer.ride?.pickup || offer.pickup || demoOffer.pickup,
+    dropoff: offer.ride?.dropoff || offer.dropoff || demoOffer.dropoff,
+    estimated_fare:
+      offer.ride?.estimated_fare ||
+      offer.estimated_fare ||
+      demoOffer.estimated_fare,
+    estimated_distance_km:
+      offer.ride?.fare?.estimated_distance_km || demoOffer.estimated_distance_km,
+    estimated_duration_min:
+      offer.ride?.fare?.estimated_duration_min || demoOffer.estimated_duration_min,
+    rider_note_to_driver:
+      offer.ride?.rider_note_to_driver ||
+      offer.rider_note_to_driver ||
+      demoOffer.rider_note_to_driver,
+  };
+}
 
 function DriverMapMock({ isOnline, surgeZones }) {
   return (
@@ -269,6 +350,8 @@ function DriverStatusCard({
   driver,
   isOnline,
   canGoOnline,
+  hasOffer,
+  isUpdatingAvailability,
   onToggleOnline,
   onShowOffer,
 }) {
@@ -328,16 +411,180 @@ function DriverStatusCard({
         />
       </div>
 
+      <Button
+        type="button"
+        disabled={!canGoOnline || isUpdatingAvailability}
+        onClick={() => onToggleOnline(!isOnline)}
+        className={
+          isOnline
+            ? "mt-4 h-14 w-full rounded-[14px] bg-[#101820] text-base font-semibold text-white hover:bg-[#1F2937]"
+            : "mt-4 h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60]"
+        }
+      >
+        <Gauge className="mr-2 h-5 w-5" />
+        {isUpdatingAvailability
+          ? "Updating availability..."
+          : isOnline
+            ? "Go offline"
+            : "Go online"}
+      </Button>
+
       {isOnline ? (
         <Button
           type="button"
           onClick={onShowOffer}
+          disabled={!hasOffer}
           className="mt-4 h-12 w-full rounded-[14px] bg-[#008C78] text-sm font-semibold text-white hover:bg-[#006F60]"
         >
           <Bell className="mr-2 h-4 w-4" />
-          Preview incoming offer
+          {hasOffer ? "Review incoming offer" : "Waiting for offers"}
         </Button>
       ) : null}
+    </Card>
+  );
+}
+
+function PendingRideOfferCard({
+  offer,
+  isLoading,
+  isOnline,
+  onReview,
+  onAccept,
+  onDecline,
+}) {
+  if (isLoading) {
+    return (
+      <Card className="rounded-[24px] border-[#E1E5EA] bg-white p-4 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#E8F7F4]">
+            <Bell className="h-5 w-5 text-[#008C78]" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-[#101820]">
+              Loading ride requests
+            </h2>
+            <p className="mt-1 text-sm text-[#4B5563]">
+              Checking pending offers from the mock API.
+            </p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  if (!offer) {
+    return (
+      <Card className="rounded-[24px] border-[#E1E5EA] bg-white p-4 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#F7F8FA]">
+            <Bell className="h-5 w-5 text-[#7A8088]" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base font-bold text-[#101820]">
+              Ride requests
+            </h2>
+            <p className="mt-1 text-sm text-[#4B5563]">
+              {isOnline
+                ? "No pending requests yet."
+                : "Go online to receive pending requests."}
+            </p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="rounded-[24px] border-[#008C78]/25 bg-[#F1FBF9] p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <Badge className="rounded-full bg-white px-3 py-1.5 text-[#008C78] shadow-soft hover:bg-white">
+            Pending request
+          </Badge>
+          <h2 className="mt-3 text-lg font-bold text-[#101820]">
+            Ride request available
+          </h2>
+          <p className="mt-1 text-sm text-[#4B5563]">
+            {offer.distance_to_pickup_km} km to pickup
+          </p>
+        </div>
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white">
+          <Bell className="h-6 w-6 text-[#008C78]" />
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-[18px] bg-white p-3">
+        <div className="flex gap-3">
+          <div className="flex flex-col items-center">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#E8F7F4]">
+              <MapPin className="h-4 w-4 text-[#008C78]" />
+            </div>
+            <div className="h-8 w-px bg-[#D7DCE2]" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#101820]">
+              <Navigation className="h-4 w-4 text-white" />
+            </div>
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-bold text-[#101820]">
+              {offer.pickup.address}
+            </p>
+            <Separator className="my-3 bg-[#E1E5EA]" />
+            <p className="truncate text-sm font-bold text-[#101820]">
+              {offer.dropoff.address}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-3 gap-3">
+        <div className="rounded-[16px] bg-white p-3">
+          <Wallet className="h-4 w-4 text-[#008C78]" />
+          <p className="mt-2 text-sm font-bold text-[#101820]">
+            {offer.estimated_fare.currency} {offer.estimated_fare.estimated_min_fare}
+          </p>
+          <p className="text-xs text-[#8A9099]">From</p>
+        </div>
+        <div className="rounded-[16px] bg-white p-3">
+          <Route className="h-4 w-4 text-[#008C78]" />
+          <p className="mt-2 text-sm font-bold text-[#101820]">
+            {offer.estimated_distance_km} km
+          </p>
+          <p className="text-xs text-[#8A9099]">Trip</p>
+        </div>
+        <div className="rounded-[16px] bg-white p-3">
+          <Clock className="h-4 w-4 text-[#008C78]" />
+          <p className="mt-2 text-sm font-bold text-[#101820]">
+            {offer.estimated_duration_min} min
+          </p>
+          <p className="text-xs text-[#8A9099]">ETA</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onReview}
+          className="h-12 rounded-[14px] border-[#E1E5EA] bg-white text-sm font-semibold text-[#101820]"
+        >
+          Review
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onDecline}
+          className="h-12 rounded-[14px] border-[#E1E5EA] bg-white text-sm font-semibold text-[#DC2626]"
+        >
+          Decline
+        </Button>
+        <Button
+          type="button"
+          onClick={onAccept}
+          className="h-12 rounded-[14px] bg-[#008C78] text-sm font-semibold text-white hover:bg-[#006F60]"
+        >
+          Accept
+        </Button>
+      </div>
     </Card>
   );
 }
@@ -538,8 +785,7 @@ function IncomingOfferSheet({ open, offer, onOpenChange, onAccept, onDecline }) 
                 Incoming ride offer
               </SheetTitle>
               <SheetDescription className="mt-1 text-base leading-6 text-[#4B5563]">
-                UI-only offer preview. Later this opens from socket or pending
-                offers.
+                Review the pickup, destination, and fare before responding.
               </SheetDescription>
             </div>
 
@@ -696,42 +942,185 @@ function IncomingOfferSheet({ open, offer, onOpenChange, onAccept, onDecline }) 
 
 export default function DriverHomePage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  const [isOnline, setIsOnline] = useState(demoDriver.is_available);
   const [offerOpen, setOfferOpen] = useState(false);
+  const [socketOffer, setSocketOffer] = useState(null);
+  const [driverLocation, setDriverLocation] = useState({
+    latitude: 31.5204,
+    longitude: 74.3587,
+    address: "Driver location, Gulberg",
+    provider: "mapbox",
+    provider_place_id: "mock.driver_location",
+  });
+  const driverQuery = useDriverProfile();
+  const offersQuery = useDriverOffers("sent");
+  const mapConfigQuery = useMapConfig();
+  const surgeZonesQuery = useSurgeZones("Lahore");
+  const availabilityMutation = useDriverAvailability();
+  const driverLocationMutation = useDriverLocation();
+  const acceptOfferMutation = useAcceptRideOffer();
+  const declineOfferMutation = useDeclineRideOffer();
+
+  const driver = toDriverHomeView(driverQuery.data);
+  const pendingOffer = socketOffer || offersQuery.data?.[0] || null;
+  const offer = toOfferView(pendingOffer);
+  const surgeZones = toDemandZones(surgeZonesQuery.data || demoSurgeZones);
+  const isOnline = Boolean(driver.is_available);
 
   const canGoOnline = useMemo(() => {
-    const approved = demoDriver.approval_status === "approved";
+    const approved = driver.approval_status === "approved";
     const hasActiveApprovedVehicle =
-      Boolean(demoDriver.active_vehicle) &&
-      demoDriver.active_vehicle.verification_status === "approved";
-    const docsApproved = Object.values(demoDriver.documents).every(
+      Boolean(driver.active_vehicle) &&
+      driver.active_vehicle.verification_status === "approved";
+    const docsApproved = Object.values(driver.documents || {}).every(
       (status) => status === "approved"
     );
 
     return approved && hasActiveApprovedVehicle && docsApproved;
-  }, []);
+  }, [driver]);
 
-  function handleToggleOnline(nextValue) {
+  useRideSocket({
+    handlers: {
+      onOffer: (nextOffer) => {
+        setSocketOffer(nextOffer);
+        setOfferOpen(true);
+      },
+      onOfferExpired: (expiredOffer) => {
+        if (!expiredOffer?.id || expiredOffer.id === pendingOffer?.id) {
+          setOfferOpen(false);
+          setSocketOffer(null);
+        }
+      },
+    },
+  });
+
+  async function handleToggleOnline(nextValue) {
     if (!canGoOnline) return;
-    setIsOnline(nextValue);
+
+    try {
+      await availabilityMutation.mutateAsync({
+        is_available: nextValue,
+        latitude: driverLocation.latitude,
+        longitude: driverLocation.longitude,
+        heading: 90,
+        speed_kmph: 0,
+        current_area: "Gulberg",
+      });
+    } catch (error) {
+      window.alert(getApiErrorMessage(error));
+    }
   }
 
-  function handleAcceptOfferUiOnly() {
-    setOfferOpen(false);
-    setIsOnline(false);
-    navigate(`/driver/rides/${demoOffer.ride_id}/navigation`);
+  async function handleDriverLocationChange(location) {
+    const nextLocation = {
+      latitude: Number(location.latitude),
+      longitude: Number(location.longitude),
+      address: "Selected driver location",
+      provider: "mapbox",
+      provider_place_id: null,
+    };
+
+    setDriverLocation(nextLocation);
+
+    try {
+      await driverLocationMutation.mutateAsync({
+        latitude: nextLocation.latitude,
+        longitude: nextLocation.longitude,
+        heading: 90,
+        speed_kmph: isOnline ? 20 : 0,
+        current_area: "Gulberg",
+      });
+    } catch (error) {
+      window.alert(getApiErrorMessage(error));
+    }
   }
 
-  function handleDeclineOfferUiOnly() {
-    setOfferOpen(false);
+  function handleLogout() {
+    clearAccessToken();
+    queryClient.removeQueries({ queryKey: queryKeys.me });
+    queryClient.removeQueries({ queryKey: queryKeys.driverProfile });
+    navigate("/auth/login", { replace: true });
+  }
+
+  async function handleAcceptOffer() {
+    if (!pendingOffer?.id) return;
+
+    try {
+      const data = await acceptOfferMutation.mutateAsync(pendingOffer.id);
+      const acceptedRide = data?.ride || data;
+      const rideId = acceptedRide?.id || pendingOffer.ride_id;
+      setOfferOpen(false);
+      setSocketOffer(null);
+      navigate(`/driver/rides/${rideId}/navigation`);
+    } catch (error) {
+      window.alert(getApiErrorMessage(error));
+    }
+  }
+
+  async function handleDeclineOffer() {
+    if (!pendingOffer?.id) {
+      setOfferOpen(false);
+      return;
+    }
+
+    try {
+      await declineOfferMutation.mutateAsync({
+        offerId: pendingOffer.id,
+        decline_reason: "Not available",
+      });
+      setSocketOffer(null);
+      setOfferOpen(false);
+    } catch (error) {
+      window.alert(getApiErrorMessage(error));
+    }
+  }
+
+  if (driverQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <LoadingState label="Loading driver home..." />
+      </main>
+    );
+  }
+
+  if (driverQuery.isError) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <ErrorState message="Could not load driver profile." />
+      </main>
+    );
+  }
+
+  function handleShowOffer() {
+    if (offer) {
+      setOfferOpen(true);
+    }
   }
 
   return (
     <main className="min-h-screen bg-white">
       <section className="mx-auto min-h-screen w-full max-w-[430px] bg-white">
         <div className="relative h-[47vh] min-h-[410px]">
-          <DriverMapMock isOnline={isOnline} surgeZones={demoSurgeZones} />
+          <MapboxMap
+            pickup={driverLocation}
+            nearbyDrivers={
+              isOnline
+                ? [
+                    {
+                      driver_id: driver.id,
+                      vehicle_id: driver.active_vehicle?.id,
+                      latitude: driverLocation.latitude,
+                      longitude: driverLocation.longitude,
+                      heading: 90,
+                    },
+                  ]
+                : []
+            }
+            surgeZones={surgeZones}
+            mapConfig={mapConfigQuery.data}
+            onPickupChange={handleDriverLocationChange}
+          />
 
           <header className="absolute left-0 right-0 top-0 z-40 px-5 pt-6">
             <div className="flex items-center justify-between">
@@ -749,26 +1138,40 @@ export default function DriverHomePage() {
                       Driver mode
                     </p>
                     <p className="max-w-[170px] truncate text-sm font-bold text-[#101820]">
-                      {demoDriver.name}
+                      {driver.name}
                     </p>
                   </div>
                 </div>
               </div>
 
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                className="h-11 w-11 rounded-full border-white/70 bg-white/95 text-[#101820] shadow-soft"
-              >
-                <Bell className="h-5 w-5" />
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-11 w-11 rounded-full border-white/70 bg-white/95 text-[#101820] shadow-soft"
+                  aria-label="Notifications"
+                >
+                  <Bell className="h-5 w-5" />
+                </Button>
+
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  onClick={handleLogout}
+                  className="h-11 w-11 rounded-full border-white/70 bg-white/95 text-[#101820] shadow-soft"
+                  aria-label="Logout"
+                >
+                  <LogOut className="h-5 w-5" />
+                </Button>
+              </div>
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
               <Badge className="rounded-full bg-white px-3 py-1.5 text-[#101820] shadow-soft hover:bg-white">
                 <Star className="mr-1 h-3.5 w-3.5 fill-[#F59E0B] text-[#F59E0B]" />
-                {demoDriver.average_rating} rating
+                {driver.average_rating} rating
               </Badge>
 
               <Badge className="rounded-full bg-white px-3 py-1.5 text-[#101820] shadow-soft hover:bg-white">
@@ -789,34 +1192,45 @@ export default function DriverHomePage() {
 
           <div className="space-y-4">
             <DriverStatusCard
-              driver={demoDriver}
+              driver={driver}
               isOnline={isOnline}
               canGoOnline={canGoOnline}
+              hasOffer={Boolean(offer)}
+              isUpdatingAvailability={availabilityMutation.isPending}
               onToggleOnline={handleToggleOnline}
-              onShowOffer={() => setOfferOpen(true)}
+              onShowOffer={handleShowOffer}
             />
 
-            {!canGoOnline ? <ReadinessCard driver={demoDriver} /> : null}
+            {!canGoOnline ? <ReadinessCard driver={driver} /> : null}
+
+            <PendingRideOfferCard
+              offer={offer}
+              isLoading={offersQuery.isLoading}
+              isOnline={isOnline}
+              onReview={handleShowOffer}
+              onAccept={handleAcceptOffer}
+              onDecline={handleDeclineOffer}
+            />
 
             <ActiveVehicleCard
-              vehicle={demoDriver.active_vehicle}
+              vehicle={driver.active_vehicle}
               onNavigate={() => navigate("/driver/vehicles")}
             />
 
             <DriverStatsGrid stats={demoStats} />
 
-            <DemandZonesCard zones={demoSurgeZones} />
+            <DemandZonesCard zones={surgeZones} />
 
             <QuickLinks onNavigate={navigate} />
           </div>
         </div>
 
         <IncomingOfferSheet
-          open={offerOpen}
-          offer={demoOffer}
+          open={offerOpen && Boolean(offer)}
+          offer={offer || demoOffer}
           onOpenChange={setOfferOpen}
-          onAccept={handleAcceptOfferUiOnly}
-          onDecline={handleDeclineOfferUiOnly}
+          onAccept={handleAcceptOffer}
+          onDecline={handleDeclineOffer}
         />
       </section>
     </main>

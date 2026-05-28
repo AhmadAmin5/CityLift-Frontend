@@ -769,7 +769,7 @@ export const handlers = [
   http.get(`${API}/maps/autocomplete`, async ({ request }) => {
     await mockDelay(180);
     const searchParams = new URL(request.url).searchParams;
-const q = searchParams.get("query") || searchParams.get("q") || "";
+    const q = (searchParams.get("query") || searchParams.get("q") || "").toLowerCase();
     const suggestions = [
       {
         latitude: 31.5204,
