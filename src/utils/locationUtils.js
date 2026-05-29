@@ -23,6 +23,28 @@ export function unwrapAutocompleteResponse(data) {
   return [];
 }
 
+export function createSessionToken() {
+  if (typeof window !== "undefined" && window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+export function hasValidCoordinates(location) {
+  return Boolean(
+    location &&
+      typeof location.latitude === "number" &&
+      typeof location.longitude === "number" &&
+      Number.isFinite(location.latitude) &&
+      Number.isFinite(location.longitude)
+  );
+}
+
 export function normalizeLocation(place, fallback = {}) {
   const raw = unwrapLocationResponse(place);
 
@@ -36,6 +58,24 @@ export function normalizeLocation(place, fallback = {}) {
   }
 
   return {
+    provider: raw.provider || fallback.provider || "google",
+    provider_place_id:
+      raw.provider_place_id ||
+      raw.place_id ||
+      raw.id ||
+      fallback.provider_place_id ||
+      null,
+    place_id:
+      raw.place_id ||
+      raw.provider_place_id ||
+      raw.id ||
+      fallback.place_id ||
+      fallback.provider_place_id ||
+      null,
+    name: raw.name || fallback.name || null,
+    place_type: raw.place_type || fallback.place_type || null,
+    primary_type: raw.primary_type || fallback.primary_type || null,
+    business_status: raw.business_status || fallback.business_status || null,
     latitude,
     longitude,
     address:
@@ -45,12 +85,5 @@ export function normalizeLocation(place, fallback = {}) {
       raw.name ||
       fallback.address ||
       "Selected location",
-    provider: raw.provider || fallback.provider || "mapbox",
-    provider_place_id:
-      raw.provider_place_id ||
-      raw.place_id ||
-      raw.id ||
-      fallback.provider_place_id ||
-      null,
   };
 }

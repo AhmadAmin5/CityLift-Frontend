@@ -21,7 +21,7 @@ import { useRideEstimate } from "@/hooks/rides/useRideEstimate";
 import { useCreateRide } from "@/hooks/rides/useCreateRide";
 
 import { getApiErrorMessage } from "@/api/client";
-import { normalizeLocation } from "@/utils/locationUtils";
+import { hasValidCoordinates, normalizeLocation } from "@/utils/locationUtils";
 
 const LAHORE_DEFAULT_LOCATION = {
     latitude: 31.5204,
@@ -60,7 +60,7 @@ function buildRoutePayload({ pickup, dropoff, stops }) {
             longitude: dropoff.longitude,
         },
         stops: stops
-            .filter((stop) => stop.latitude && stop.longitude)
+            .filter(hasValidCoordinates)
             .map((stop) => ({
                 latitude: stop.latitude,
                 longitude: stop.longitude,
@@ -78,7 +78,7 @@ function buildEstimatePayload({ pickup, dropoff, stops, rideType }) {
         pickup,
         dropoff,
         stops: stops
-            .filter((stop) => stop.latitude && stop.longitude)
+            .filter(hasValidCoordinates)
             .map((stop, index) => ({
                 stop_order: index + 2,
                 stop_type: "intermediate",
@@ -98,7 +98,7 @@ function buildCreateRidePayload({
     riderNote,
     rideType,
 }) {
-    const validStops = stops.filter((stop) => stop.latitude && stop.longitude);
+    const validStops = stops.filter(hasValidCoordinates);
 
     return {
         ride_type: rideType,
@@ -268,8 +268,8 @@ export default function RiderHomePage() {
     }
 
     async function handleEstimate() {
-        if (!pickup || !dropoff) {
-            toast.error("Select pickup and dropoff first");
+        if (!hasValidCoordinates(pickup) || !hasValidCoordinates(dropoff)) {
+            toast.error("Select pickup and dropoff from the suggestions first");
             return;
         }
 
@@ -298,8 +298,8 @@ export default function RiderHomePage() {
     }
 
     async function handleCreateRide() {
-        if (!pickup || !dropoff) {
-            toast.error("Select pickup and dropoff first");
+        if (!hasValidCoordinates(pickup) || !hasValidCoordinates(dropoff)) {
+            toast.error("Select pickup and dropoff from the suggestions first");
             return;
         }
 

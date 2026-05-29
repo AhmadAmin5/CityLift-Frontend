@@ -1,21 +1,74 @@
-import { useQuery } from "@tanstack/react-query";
-import { getAddressAutocomplete } from "@/api/maps.api";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import {
+  fetchLocationSuggestions,
+  fetchPlaceDetails,
+} from "@/api/maps.api";
 import { unwrapAutocompleteResponse } from "@/utils/locationUtils";
 
-export function useAddressAutocomplete({ q, latitude, longitude }) {
+function useDebouncedValue(value, delay = 300) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [delay, value]);
+
+  return debouncedValue;
+}
+
+export function useAddressAutocomplete({
+  q,
+  query,
+  latitude,
+  longitude,
+  limit = 5,
+  sessionToken,
+  typePreset = "all",
+}) {
+  const normalizedQuery = (query || q || "").trim();
+  const debouncedQuery = useDebouncedValue(normalizedQuery);
+
   return useQuery({
-    queryKey: ["maps", "autocomplete", q, latitude, longitude],
-    queryFn: async () => {
-      const data = await getAddressAutocomplete({
-        q,
-        latitude,
-        longitude,
-        limit: 5,
-      });
+    queryKey: [
+      "location-autocomplete",
+      debouncedQuery,
+      latitude,
+      longitude,
+      limit,
+      sessionToken,
+      typePreset,
+    ],
+    queryFn: async ({ signal }) => {
+      const data = await fetchLocationSuggestions(
+        {
+          query: debouncedQuery,
+          latitude,
+          longitude,
+          limit,
+          sessionToken,
+          typePreset,
+        },
+        signal
+      );
 
       return unwrapAutocompleteResponse(data);
     },
-    enabled: Boolean(q && q.trim().length >= 2),
-    staleTime: 15 * 1000,
+    enabled: debouncedQuery.length >= 2 && Boolean(sessionToken),
+    staleTime: 0,
+    retry: 1,
+  });
+}
+
+export function usePlaceDetailsMutation() {
+  return useMutation({
+    mutationFn: ({ placeId, sessionToken }) =>
+      fetchPlaceDetails({
+        placeId,
+        sessionToken,
+      }),
   });
 }

@@ -51,9 +51,16 @@ import {
   useSavedPlaces,
   useUpdateSavedPlace,
 } from "@/hooks/rider/useSavedPlaces";
-import { useAddressAutocomplete } from "@/hooks/maps/useAddressAutocomplete";
+import {
+  useAddressAutocomplete,
+  usePlaceDetailsMutation,
+} from "@/hooks/maps/useAddressAutocomplete";
 import { useReverseGeocode } from "@/hooks/maps/useReverseGeocode";
-import { normalizeLocation } from "@/utils/locationUtils";
+import {
+  createSessionToken,
+  hasValidCoordinates,
+  normalizeLocation,
+} from "@/utils/locationUtils";
 import { toast } from "sonner";
 
 const emptyDraft = {
@@ -143,21 +150,6 @@ function getPlaceTypeConfig(placeType) {
     badgeClass: "bg-[#FFF7ED] text-[#C2410C] hover:bg-[#FFF7ED]",
     panelClass: "bg-[#FFF7ED]",
     iconClass: "text-[#F59E0B]",
-  };
-}
-
-function createPlaceFromSuggestion(suggestion, draft) {
-  const selectedPlace = normalizeLocation(suggestion, draft);
-
-  if (!selectedPlace) return draft;
-
-  return {
-    ...draft,
-    latitude: selectedPlace.latitude,
-    longitude: selectedPlace.longitude,
-    address: selectedPlace.address,
-    provider: selectedPlace.provider,
-    provider_place_id: selectedPlace.provider_place_id,
   };
 }
 
@@ -638,13 +630,17 @@ function PlaceEditorSheet({
   isSaving = false,
 }) {
   const [addressQuery, setAddressQuery] = useState(draft.address || "");
+  const [sessionToken, setSessionToken] = useState(null);
+  const [resolvingPlaceId, setResolvingPlaceId] = useState(null);
 
   const isEditing = Boolean(draft.id);
   const autocompleteQuery = useAddressAutocomplete({
     q: addressQuery,
     latitude: draft.latitude,
     longitude: draft.longitude,
+    sessionToken,
   });
+  const placeDetailsMutation = usePlaceDetailsMutation();
   const reverseGeocodeMutation = useReverseGeocode();
 
   useEffect(() => {
@@ -673,10 +669,50 @@ function PlaceEditorSheet({
     });
   }
 
-  function selectSuggestion(suggestion) {
-    const nextDraft = createPlaceFromSuggestion(suggestion, draft);
-    setAddressQuery(nextDraft.address || "");
-    onDraftChange(nextDraft);
+  function ensureSessionToken() {
+    if (!sessionToken) {
+      const nextToken = createSessionToken();
+      setSessionToken(nextToken);
+      return nextToken;
+    }
+
+    return sessionToken;
+  }
+
+  async function selectSuggestion(suggestion) {
+    const placeId = suggestion.place_id || suggestion.provider_place_id;
+    const token = ensureSessionToken();
+
+    if (!placeId) return;
+
+    setResolvingPlaceId(placeId);
+
+    try {
+      const details = await placeDetailsMutation.mutateAsync({
+        placeId,
+        sessionToken: token,
+      });
+      const selectedPlace = normalizeLocation(details, draft);
+
+      if (!hasValidCoordinates(selectedPlace)) return;
+
+      const nextDraft = {
+        ...draft,
+        latitude: selectedPlace.latitude,
+        longitude: selectedPlace.longitude,
+        address: selectedPlace.address,
+        provider: selectedPlace.provider,
+        provider_place_id: selectedPlace.provider_place_id,
+      };
+
+      setAddressQuery(selectedPlace.name || selectedPlace.address || "");
+      setSessionToken(createSessionToken());
+      onDraftChange(nextDraft);
+    } catch {
+      // The inline error state below keeps the editor usable.
+    } finally {
+      setResolvingPlaceId(null);
+    }
   }
 
   async function nudgePin() {
@@ -721,6 +757,9 @@ function PlaceEditorSheet({
       open={open}
       onOpenChange={(nextOpen) => {
         onOpenChange(nextOpen);
+        setSessionToken(null);
+        setResolvingPlaceId(null);
+        placeDetailsMutation.reset();
         if (nextOpen) setAddressQuery(draft.address || "");
       }}
     >
@@ -855,7 +894,12 @@ function PlaceEditorSheet({
               <Search className="h-5 w-5 text-[#7A8088]" />
               <Input
                 value={addressQuery}
-                onChange={(event) => setAddressQuery(event.target.value)}
+                onFocus={ensureSessionToken}
+                onChange={(event) => {
+                  ensureSessionToken();
+                  placeDetailsMutation.reset();
+                  setAddressQuery(event.target.value);
+                }}
                 placeholder="Search location"
                 className="h-auto border-0 p-0 text-base text-[#101820] shadow-none placeholder:text-[#8A9099] focus-visible:ring-0"
               />
@@ -864,6 +908,8 @@ function PlaceEditorSheet({
                   type="button"
                   onClick={() => {
                     setAddressQuery("");
+                    setSessionToken(createSessionToken());
+                    placeDetailsMutation.reset();
                     updateField("address", "");
                   }}
                   className="flex h-8 w-8 items-center justify-center rounded-full text-[#7A8088]"
@@ -875,7 +921,7 @@ function PlaceEditorSheet({
             </div>
 
             <div className="mt-3 space-y-2">
-              {autocompleteQuery.isLoading ? (
+              {autocompleteQuery.isFetching ? (
                 <Card className="rounded-[18px] border-[#E1E5EA] bg-white p-3 text-sm font-semibold text-[#4B5563] shadow-sm">
                   Searching addresses...
                 </Card>
@@ -883,28 +929,36 @@ function PlaceEditorSheet({
 
               {autocompleteQuery.isError ? (
                 <p className="text-sm font-medium text-[#DC2626]">
-                  Could not load address suggestions.
+                  Could not fetch suggestions. Try again.
+                </p>
+              ) : null}
+
+              {placeDetailsMutation.isError ? (
+                <p className="text-sm font-medium text-[#DC2626]">
+                  Could not fetch location details. Please select another result.
                 </p>
               ) : null}
 
               {filteredSuggestions.slice(0, 4).map((suggestion, index) => {
-                const normalizedSuggestion = normalizeLocation(suggestion);
                 const title =
                   suggestion.label ||
                   suggestion.name ||
-                  normalizedSuggestion?.address ||
+                  suggestion.full_address ||
+                  suggestion.address ||
                   "Location";
-                const subtitle =
-                  suggestion.address || normalizedSuggestion?.address || "";
+                const subtitle = suggestion.full_address || suggestion.address || "";
                 const selectedId =
-                  normalizedSuggestion?.provider_place_id ||
+                  suggestion.place_id ||
                   suggestion.provider_place_id ||
                   suggestion.id;
+                const isResolving =
+                  resolvingPlaceId && resolvingPlaceId === selectedId;
 
                 return (
                 <button
                   key={selectedId || subtitle || index}
                   type="button"
+                  disabled={Boolean(resolvingPlaceId)}
                   onClick={() => selectSuggestion(suggestion)}
                   className={
                     draft.provider_place_id === selectedId
@@ -921,7 +975,7 @@ function PlaceEditorSheet({
                       {title}
                     </p>
                     <p className="mt-0.5 truncate text-xs text-[#4B5563]">
-                      {subtitle}
+                      {isResolving ? "Getting details..." : subtitle}
                     </p>
                   </div>
 
@@ -933,7 +987,8 @@ function PlaceEditorSheet({
               })}
 
               {addressQuery.trim().length >= 2 &&
-              !autocompleteQuery.isLoading &&
+              Boolean(sessionToken) &&
+              !autocompleteQuery.isFetching &&
               !filteredSuggestions.length ? (
                 <p className="text-sm text-[#8A9099]">No suggestions found.</p>
               ) : null}

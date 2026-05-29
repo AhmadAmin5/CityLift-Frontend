@@ -50,6 +50,7 @@ export function RequireAuth({ allowedRoles }) {
 }
 
 export function PublicOnlyRoute() {
+  const location = useLocation();
   const token = getAccessToken();
   const { data, isLoading, isError } = useMe();
 
@@ -64,6 +65,13 @@ export function PublicOnlyRoute() {
   if (isError) {
     clearAccessToken();
     return <Outlet />;
+  }
+
+  if (
+    data?.user?.role === "driver" &&
+    location.pathname === "/auth/register/driver"
+  ) {
+    return <Navigate to="/driver/documents" replace />;
   }
 
   return <Navigate to={getHomeRouteForRole(data?.user?.role)} replace />;

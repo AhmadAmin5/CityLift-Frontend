@@ -6,6 +6,7 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { LocationSearchInput } from "@/components/ride/LocationSearchInput";
 import { FareEstimateCard } from "@/components/ride/FareEstimateCard";
+import { hasValidCoordinates } from "@/utils/locationUtils";
 
 export function RideActionSheet({
   pickup,
@@ -29,8 +30,8 @@ export function RideActionSheet({
   onEstimate,
   onCreateRide,
 }) {
-  const canEstimate = Boolean(pickup && dropoff);
-  const canCreate = Boolean(estimate && pickup && dropoff);
+  const canEstimate = hasValidCoordinates(pickup) && hasValidCoordinates(dropoff);
+  const canCreate = Boolean(estimate) && canEstimate;
 
   function addStop() {
     setStops((current) => [
@@ -40,7 +41,7 @@ export function RideActionSheet({
         latitude: null,
         longitude: null,
         address: "",
-        provider: "mapbox",
+        provider: "google",
         provider_place_id: null,
       },
     ]);
@@ -52,11 +53,13 @@ export function RideActionSheet({
         stop.id === stopId
           ? {
               ...stop,
-              latitude: place.latitude,
-              longitude: place.longitude,
-              address: place.address,
-              provider: place.provider || "mapbox",
-              provider_place_id: place.provider_place_id || null,
+              ...(place || {
+                latitude: null,
+                longitude: null,
+                address: "",
+                provider: "google",
+                provider_place_id: null,
+              }),
             }
           : stop
       )
@@ -234,7 +237,7 @@ export function RideActionSheet({
           disabled={!canEstimate || isEstimating}
           onClick={() => {
             if (!canEstimate) {
-              toast.error("Select pickup and dropoff first");
+              toast.error("Select pickup and dropoff from the suggestions first");
               return;
             }
 

@@ -6,15 +6,40 @@ export async function getMapConfig() {
 }
 
 export async function getAddressAutocomplete(params) {
-  const searchText = params.q || params.query || "";
+  return fetchLocationSuggestions({
+    query: params.query || params.q || "",
+    latitude: params.latitude,
+    longitude: params.longitude,
+    limit: params.limit || 5,
+    sessionToken: params.sessionToken || params.session_token,
+    typePreset: params.typePreset || params.type_preset || "all",
+  });
+}
 
+export async function fetchLocationSuggestions(params, signal) {
   const response = await api.get("/maps/autocomplete", {
+    signal,
     params: {
-      query: searchText,
-      q: searchText,
+      query: params.query,
       latitude: params.latitude,
       longitude: params.longitude,
       limit: params.limit || 5,
+      session_token: params.sessionToken,
+      ...(params.typePreset && params.typePreset !== "all"
+        ? { type_preset: params.typePreset }
+        : {}),
+    },
+  });
+
+  return unwrapData(response);
+}
+
+export async function fetchPlaceDetails(params, signal) {
+  const response = await api.get("/maps/place-details", {
+    signal,
+    params: {
+      place_id: params.placeId,
+      session_token: params.sessionToken,
     },
   });
 

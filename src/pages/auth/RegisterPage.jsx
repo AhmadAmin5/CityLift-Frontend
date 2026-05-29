@@ -102,12 +102,17 @@ export default function RegisterPage({ role = "rider" }) {
 
         toast.success("Account created successfully");
 
+        if (returnedRole === "driver") {
+          navigate("/driver/documents", { replace: true });
+          return;
+        }
+
         navigate("/auth/verify-otp", {
           replace: true,
           state: {
             role: returnedRole,
             channel: "phone",
-            nextPath: returnedRole === "driver" ? "/driver/documents" : "/rider/home",
+            nextPath: "/rider/home",
           },
         });
       },

@@ -140,6 +140,97 @@ function makeReceipt(ride) {
   return receipt;
 }
 
+const mockPlaceDetails = [
+  {
+    provider: "google",
+    provider_place_id: "ChIJ_mock_gulberg_lahore",
+    place_id: "ChIJ_mock_gulberg_lahore",
+    name: "Gulberg III",
+    address: "Gulberg III, Lahore, Pakistan",
+    latitude: 31.5102,
+    longitude: 74.3441,
+    place_type: ["neighborhood", "political"],
+    primary_type: "neighborhood",
+    business_status: null,
+  },
+  {
+    provider: "google",
+    provider_place_id: "ChIJ_mock_packages_mall",
+    place_id: "ChIJ_mock_packages_mall",
+    name: "Packages Mall",
+    address: "Walton Road, Lahore, Pakistan",
+    latitude: 31.4697,
+    longitude: 74.2728,
+    place_type: ["shopping_mall", "point_of_interest", "establishment"],
+    primary_type: "shopping_mall",
+    business_status: "OPERATIONAL",
+  },
+  {
+    provider: "google",
+    provider_place_id: "ChIJ_mock_tcs_express",
+    place_id: "ChIJ_mock_tcs_express",
+    name: "TCS Express Center",
+    address: "Gulberg III, Lahore, Pakistan",
+    latitude: 31.5001,
+    longitude: 74.3442,
+    place_type: ["courier_service", "point_of_interest", "establishment"],
+    primary_type: "courier_service",
+    business_status: "OPERATIONAL",
+  },
+  {
+    provider: "google",
+    provider_place_id: "ChIJ_mock_johar_town",
+    place_id: "ChIJ_mock_johar_town",
+    name: "Johar Town",
+    address: "Johar Town, Lahore, Pakistan",
+    latitude: 31.4697,
+    longitude: 74.2728,
+    place_type: ["neighborhood", "political"],
+    primary_type: "neighborhood",
+    business_status: null,
+  },
+  {
+    provider: "google",
+    provider_place_id: "ChIJ_mock_emporium_mall",
+    place_id: "ChIJ_mock_emporium_mall",
+    name: "Emporium Mall",
+    address: "Abdul Haque Road, Johar Town, Lahore, Pakistan",
+    latitude: 31.4621,
+    longitude: 74.2766,
+    place_type: ["shopping_mall", "point_of_interest", "establishment"],
+    primary_type: "shopping_mall",
+    business_status: "OPERATIONAL",
+  },
+  {
+    provider: "google",
+    provider_place_id: "ChIJ_mock_mall_road",
+    place_id: "ChIJ_mock_mall_road",
+    name: "Mall Road",
+    address: "Mall Road, Lahore, Pakistan",
+    latitude: 31.5497,
+    longitude: 74.3436,
+    place_type: ["route"],
+    primary_type: "route",
+    business_status: null,
+  },
+];
+
+function makeAutocompleteSuggestion(place) {
+  return {
+    provider: place.provider,
+    provider_place_id: place.provider_place_id,
+    place_id: place.place_id,
+    name: place.name,
+    address: place.address,
+    full_address: `${place.name}, ${place.address}`,
+    latitude: null,
+    longitude: null,
+    place_type: place.place_type,
+    primary_type: place.primary_type,
+    requires_details: true,
+  };
+}
+
 export const handlers = [
   // Auth
   http.post(`${API}/auth/login`, async ({ request }) => {
@@ -769,39 +860,65 @@ export const handlers = [
   http.get(`${API}/maps/autocomplete`, async ({ request }) => {
     await mockDelay(180);
     const searchParams = new URL(request.url).searchParams;
-    const q = (searchParams.get("query") || searchParams.get("q") || "").toLowerCase();
-    const suggestions = [
-      {
-        latitude: 31.5204,
-        longitude: 74.3587,
-        address: "Gulberg, Lahore",
-        provider: "mapbox",
-        provider_place_id: "mapbox.place.gulberg",
-      },
-      {
-        latitude: 31.4697,
-        longitude: 74.2728,
-        address: "Johar Town, Lahore",
-        provider: "mapbox",
-        provider_place_id: "mapbox.place.johar_town",
-      },
-      {
-        latitude: 31.5497,
-        longitude: 74.3436,
-        address: "Mall Road, Lahore",
-        provider: "mapbox",
-        provider_place_id: "mapbox.place.mall_road",
-      },
-      {
-        latitude: 31.4621,
-        longitude: 74.2766,
-        address: "Emporium Mall, Lahore",
-        provider: "mapbox",
-        provider_place_id: "mapbox.place.emporium_mall",
-      },
-    ].filter((item) => !q || item.address.toLowerCase().includes(q));
+    const q = (searchParams.get("query") || searchParams.get("q") || "")
+      .trim()
+      .toLowerCase();
+    const limit = Number(searchParams.get("limit") || 5);
+    const sessionToken = searchParams.get("session_token");
+    const typePreset = searchParams.get("type_preset") || "all";
+    const suggestions = mockPlaceDetails
+      .filter((place) => {
+        if (typePreset === "courier" && place.primary_type !== "courier_service") {
+          return false;
+        }
 
-    return ok(suggestions, "Address suggestions fetched successfully");
+        if (!q) return true;
+
+        return [place.name, place.address, place.primary_type]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(q);
+      })
+      .slice(0, limit)
+      .map(makeAutocompleteSuggestion);
+
+    return ok(
+      suggestions,
+      "Autocomplete results fetched successfully",
+      {
+        provider: "google",
+        city: "Lahore",
+        country: "PK",
+        requires_place_details: true,
+        session_token: sessionToken,
+      }
+    );
+  }),
+
+  http.get(`${API}/maps/place-details`, async ({ request }) => {
+    await mockDelay(180);
+    const searchParams = new URL(request.url).searchParams;
+    const placeId = searchParams.get("place_id");
+    const sessionToken = searchParams.get("session_token");
+    const details = mockPlaceDetails.find(
+      (place) =>
+        place.place_id === placeId ||
+        place.provider_place_id === placeId
+    );
+
+    if (!details) {
+      return fail("Place details not found", "PLACE_NOT_FOUND", 404);
+    }
+
+    return ok(
+      details,
+      "Place details fetched successfully",
+      {
+        provider: "google",
+        session_token: sessionToken,
+      }
+    );
   }),
 
   http.get(`${API}/maps/reverse-geocode`, async ({ request }) => {
