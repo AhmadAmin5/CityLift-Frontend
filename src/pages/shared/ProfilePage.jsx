@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -18,9 +18,11 @@ import {
   UserRound,
   Wallet,
   XCircle,
+  Loader2,
 } from "lucide-react";
+import { toast } from "sonner";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -43,6 +45,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ErrorState } from "@/common/ErrorState";
+import { LoadingState } from "@/common/LoadingState";
+import { getApiErrorMessage } from "@/api/client";
+import { useMe } from "@/hooks/auth/useMe";
+import { useDriverProfile } from "@/hooks/driver/useDriverProfile";
+import { useRiderProfile } from "@/hooks/rider/useRiderProfile";
+import {
+  useLogout,
+  useUpdateProfile,
+  useUploadProfilePhoto,
+} from "@/hooks/shared/useProfileActions";
 
 const demoProfile = {
   id: "user_001",
@@ -119,7 +132,51 @@ function getRoleConfig(role) {
   };
 }
 
-function ProfileHero({ profile, onEdit }) {
+function getInitials(name) {
+  return String(name || "User")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+}
+
+function formatMemberSince(timestamp) {
+  if (!timestamp) return "May 2026";
+
+  try {
+    return new Intl.DateTimeFormat("en", {
+      month: "short",
+      year: "numeric",
+    }).format(new Date(timestamp));
+  } catch {
+    return "May 2026";
+  }
+}
+
+function makeProfileView({ user, rider, driver, savedPlaceCount }) {
+  const roleProfile = user?.role === "driver" ? driver : rider;
+  const name = user?.name || demoProfile.name;
+
+  return {
+    ...demoProfile,
+    ...user,
+    name,
+    initials: getInitials(name),
+    role: user?.role || demoProfile.role,
+    member_since: formatMemberSince(user?.created_at),
+    stats: {
+      total_rides:
+        roleProfile?.total_rides ?? demoProfile.stats.total_rides,
+      average_rating:
+        roleProfile?.average_rating ?? demoProfile.stats.average_rating,
+      saved_places: savedPlaceCount ?? demoProfile.stats.saved_places,
+    },
+  };
+}
+
+function ProfileHero({ profile, onEdit, onPhotoClick, isUploadingPhoto }) {
   const roleConfig = getRoleConfig(profile.role);
   const RoleIcon = roleConfig.icon;
 
@@ -128,6 +185,9 @@ function ProfileHero({ profile, onEdit }) {
       <div className="flex flex-col items-center text-center">
         <div className="relative">
           <Avatar className="h-24 w-24 border-4 border-white shadow-card">
+            {profile.profile_photo_url ? (
+              <AvatarImage src={profile.profile_photo_url} alt={profile.name} />
+            ) : null}
             <AvatarFallback className="bg-[#E8F7F4] text-2xl font-bold text-[#008C78]">
               {profile.initials}
             </AvatarFallback>
@@ -135,10 +195,16 @@ function ProfileHero({ profile, onEdit }) {
 
           <button
             type="button"
+            onClick={onPhotoClick}
+            disabled={isUploadingPhoto}
             className="absolute -bottom-1 -right-1 flex h-10 w-10 items-center justify-center rounded-full border-4 border-[#F1FBF9] bg-[#008C78] text-white"
             aria-label="Change profile photo"
           >
-            <Camera className="h-4 w-4" />
+            {isUploadingPhoto ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Camera className="h-4 w-4" />
+            )}
           </button>
         </div>
 
@@ -304,6 +370,7 @@ function EditProfileSheet({
   profileDraft,
   setProfileDraft,
   onSave,
+  isSaving,
 }) {
   function updateField(field, value) {
     setProfileDraft({
@@ -326,7 +393,7 @@ function EditProfileSheet({
           </SheetTitle>
 
           <SheetDescription className="text-base leading-6 text-[#4B5563]">
-            UI-only profile update. API wiring will come later.
+            Update your account details.
           </SheetDescription>
         </SheetHeader>
 
@@ -379,10 +446,15 @@ function EditProfileSheet({
           <Button
             type="button"
             onClick={onSave}
+            disabled={isSaving}
             className="h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60]"
           >
-            <CheckCircle2 className="mr-2 h-5 w-5" />
-            Save changes
+            {isSaving ? (
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-2 h-5 w-5" />
+            )}
+            {isSaving ? "Saving..." : "Save changes"}
           </Button>
         </div>
       </SheetContent>
@@ -434,12 +506,35 @@ function SettingsInfoSheet({ selectedItem, onOpenChange }) {
 export default function ProfilePage() {
   const navigate = useNavigate();
 
-  const [profile, setProfile] = useState(demoProfile);
+  const meQuery = useMe();
+  const user = meQuery.data?.user;
+  const riderQuery = useRiderProfile({
+    enabled: user?.role === "rider",
+  });
+  const driverQuery = useDriverProfile({
+    enabled: user?.role === "driver",
+  });
+  const updateProfileMutation = useUpdateProfile();
+  const uploadPhotoMutation = useUploadProfilePhoto();
+  const logoutMutation = useLogout();
+  const photoInputRef = useRef(null);
+
   const [profileDraft, setProfileDraft] = useState(demoProfile);
   const [editOpen, setEditOpen] = useState(false);
   const [selectedSettingsItem, setSelectedSettingsItem] = useState(null);
   const [logoutOpen, setLogoutOpen] = useState(false);
 
+  const rider = riderQuery.data?.rider || riderQuery.data;
+  const driver = driverQuery.data?.driver || driverQuery.data;
+  const profile = useMemo(
+    () =>
+      makeProfileView({
+        user,
+        rider,
+        driver,
+      }),
+    [user, rider, driver]
+  );
   const roleConfig = useMemo(() => getRoleConfig(profile.role), [profile.role]);
 
   function openEditSheet() {
@@ -447,31 +542,42 @@ export default function ProfilePage() {
     setEditOpen(true);
   }
 
-  function saveProfileUiOnly() {
-    setProfile({
-      ...profile,
-      name: profileDraft.name.trim() || profile.name,
-      email: profileDraft.email.trim() || profile.email,
-      phone: profileDraft.phone.trim() || profile.phone,
-      initials: getInitials(profileDraft.name || profile.name),
-    });
+  async function saveProfile() {
+    try {
+      await updateProfileMutation.mutateAsync({
+        name: profileDraft.name.trim() || profile.name,
+        email: profileDraft.email.trim() || profile.email,
+        phone: profileDraft.phone.trim() || profile.phone,
+      });
 
-    setEditOpen(false);
+      toast.success("Profile updated");
+      setEditOpen(false);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error));
+    }
   }
 
-  function getInitials(name) {
-    return String(name || "User")
-      .split(" ")
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0])
-      .join("")
-      .toUpperCase();
+  async function handlePhotoSelected(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      await uploadPhotoMutation.mutateAsync(file);
+      toast.success("Profile photo updated");
+    } catch (error) {
+      toast.error(getApiErrorMessage(error));
+    } finally {
+      event.target.value = "";
+    }
   }
 
-  function handleLogoutUiOnly() {
-    setLogoutOpen(false);
-    navigate("/auth/login", { replace: true });
+  async function handleLogout() {
+    try {
+      await logoutMutation.mutateAsync();
+    } finally {
+      setLogoutOpen(false);
+      navigate("/auth/login", { replace: true });
+    }
   }
 
   function goBackByRole() {
@@ -486,6 +592,22 @@ export default function ProfilePage() {
     }
 
     navigate("/rider/home");
+  }
+
+  if (meQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <LoadingState label="Loading profile..." />
+      </main>
+    );
+  }
+
+  if (meQuery.isError) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <ErrorState message="Could not load profile." />
+      </main>
+    );
   }
 
   return (
@@ -513,7 +635,19 @@ export default function ProfilePage() {
         </header>
 
         <div className="mt-8 space-y-4">
-          <ProfileHero profile={profile} onEdit={openEditSheet} />
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handlePhotoSelected}
+          />
+          <ProfileHero
+            profile={profile}
+            onEdit={openEditSheet}
+            onPhotoClick={() => photoInputRef.current?.click()}
+            isUploadingPhoto={uploadPhotoMutation.isPending}
+          />
           <ProfileStatsCard profile={profile} />
           <ContactInfoCard profile={profile} />
           <SettingsCard onSelect={setSelectedSettingsItem} />
@@ -545,7 +679,8 @@ export default function ProfilePage() {
           onOpenChange={setEditOpen}
           profileDraft={profileDraft}
           setProfileDraft={setProfileDraft}
-          onSave={saveProfileUiOnly}
+          onSave={saveProfile}
+          isSaving={updateProfileMutation.isPending}
         />
 
         <SettingsInfoSheet
@@ -563,8 +698,7 @@ export default function ProfilePage() {
               </AlertDialogTitle>
 
               <AlertDialogDescription className="text-base leading-6 text-[#4B5563]">
-                You will return to the login screen. This is UI-only for now;
-                later it will clear auth state and call logout if needed.
+                You will return to the login screen.
               </AlertDialogDescription>
             </AlertDialogHeader>
 
@@ -574,10 +708,10 @@ export default function ProfilePage() {
               </AlertDialogCancel>
 
               <AlertDialogAction
-                onClick={handleLogoutUiOnly}
+                onClick={handleLogout}
                 className="h-12 rounded-[14px] bg-[#DC2626] text-base font-semibold text-white hover:bg-[#B91C1C]"
               >
-                Logout
+                {logoutMutation.isPending ? "Logging out..." : "Logout"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

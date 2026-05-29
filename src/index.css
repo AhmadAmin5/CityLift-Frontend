@@ -1,6 +1,24 @@
 @import "tailwindcss";
 
 @layer base {
+  @keyframes ride-sidebar-in {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes ride-sidebar-out {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-100%);
+    }
+  }
+
   :root {
     --color-brand-primary: #008c78;
     --color-brand-primary-dark: #006f60;

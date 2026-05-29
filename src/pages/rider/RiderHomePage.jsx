@@ -1,13 +1,13 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Bell, Car, LogOut, MapPin, Star, Zap } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { Car, MapPin, Star, Zap } from "lucide-react";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
 
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MapboxMap } from "@/components/map/MapboxMap";
 import { RideActionSheet } from "@/components/ride/RideActionSheet";
+import { HomeSidebar } from "@/components/navigation/HomeSidebar";
 
 import { useMe } from "@/hooks/auth/useMe";
 import { useRiderProfile } from "@/hooks/rider/useRiderProfile";
@@ -21,8 +21,6 @@ import { useRideEstimate } from "@/hooks/rides/useRideEstimate";
 import { useCreateRide } from "@/hooks/rides/useCreateRide";
 
 import { getApiErrorMessage } from "@/api/client";
-import { queryKeys } from "@/query/queryKeys";
-import { clearAccessToken } from "@/utils/tokenStorage";
 import { normalizeLocation } from "@/utils/locationUtils";
 
 const LAHORE_DEFAULT_LOCATION = {
@@ -142,7 +140,7 @@ function buildCreateRidePayload({
 
 export default function RiderHomePage() {
     const navigate = useNavigate();
-    const queryClient = useQueryClient();
+    const location = useLocation();
 
     const meQuery = useMe();
     const riderQuery = useRiderProfile();
@@ -182,11 +180,23 @@ export default function RiderHomePage() {
         return surgeZones.find((zone) => Number(zone.surge_multiplier) > 1);
     }, [surgeZones]);
 
-    function handleLogout() {
-        clearAccessToken();
-        queryClient.removeQueries({ queryKey: queryKeys.me });
-        navigate("/auth/login", { replace: true });
-    }
+    useEffect(() => {
+        const savedPlace = location.state?.saved_place;
+        const useAs = location.state?.use_as;
+        const selectedPlace = normalizePlace(savedPlace);
+
+        if (!selectedPlace || !useAs) return;
+
+        if (useAs === "pickup") {
+            setPickup(selectedPlace);
+        } else {
+            setDropoff(selectedPlace);
+        }
+
+        estimateMutation.reset();
+        routePreviewMutation.reset();
+        navigate(location.pathname, { replace: true, state: null });
+    }, [location.pathname, location.state, navigate]);
 
     async function handlePickupPinChange(location) {
         await handleMapLocationChange("pickup", location);
@@ -322,14 +332,12 @@ export default function RiderHomePage() {
     const isInitialLoading =
         meQuery.isLoading ||
         riderQuery.isLoading ||
-        savedPlacesQuery.isLoading ||
-        mapConfigQuery.isLoading;
+        savedPlacesQuery.isLoading;
 
     const hasInitialError =
         meQuery.isError ||
         riderQuery.isError ||
-        savedPlacesQuery.isError ||
-        mapConfigQuery.isError;
+        savedPlacesQuery.isError;
 
     if (hasInitialError) {
         return (
@@ -366,63 +374,45 @@ export default function RiderHomePage() {
                     />
 
                     <header className="absolute left-0 right-0 top-0 z-40 px-5 pt-6">
-                        <div className="flex items-center justify-between">
-                            <div className="rounded-[22px] border border-white/70 bg-white/95 p-3 shadow-soft backdrop-blur">
-                                <div className="flex items-center gap-3">
-                                    <div className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-[#E8F7F4]">
-                                        <Car className="h-5 w-5 text-[#008C78]" />
-                                    </div>
+                        <div className="flex items-start justify-between gap-3">
+                            <HomeSidebar
+                                role="rider"
+                                profile={{
+                                    name: user?.name || "Rider",
+                                    email: user?.email,
+                                    phone: user?.phone,
+                                    initials: user?.name
+                                        ?.split(" ")
+                                        .filter(Boolean)
+                                        .slice(0, 2)
+                                        .map((part) => part[0]?.toUpperCase())
+                                        .join(""),
+                                    profile_photo_url:
+                                        user?.profile_photo_url || null,
+                                    rating: rider?.average_rating || "5.0",
+                                }}
+                            />
 
-                                    <div>
-                                        <p className="text-xs font-semibold text-[#008C78]">
-                                            Good day
-                                        </p>
-                                        <p className="max-w-[170px] truncate text-sm font-bold text-[#101820]">
-                                            {user?.name || "Rider"}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="flex gap-2">
-                                <button
-                                    type="button"
-                                    className="flex h-11 w-11 items-center justify-center rounded-full border border-white/70 bg-white/95 text-[#101820] shadow-soft"
-                                    aria-label="Notifications"
-                                >
-                                    <Bell className="h-5 w-5" />
-                                </button>
-
-                                <button
-                                    type="button"
-                                    onClick={handleLogout}
-                                    className="flex h-11 w-11 items-center justify-center rounded-full border border-white/70 bg-white/95 text-[#101820] shadow-soft"
-                                    aria-label="Logout"
-                                >
-                                    <LogOut className="h-5 w-5" />
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className="mt-3 flex flex-wrap gap-2">
-                            <Badge className="rounded-full bg-white px-3 py-1.5 text-[#101820] shadow-soft hover:bg-white">
-                                <Star className="mr-1 h-3.5 w-3.5 text-[#F59E0B]" />
-                                {rider?.average_rating || "5.0"} rating
-                            </Badge>
-
-                            <Badge className="rounded-full bg-white px-3 py-1.5 text-[#101820] shadow-soft hover:bg-white">
-                                <Car className="mr-1 h-3.5 w-3.5 text-[#008C78]" />
-                                {nearbyDriversQuery.isLoading
-                                    ? "Loading"
-                                    : `${nearbyDrivers.length} nearby`}
-                            </Badge>
-
-                            {activeSurgeZone ? (
-                                <Badge className="rounded-full bg-[#FFF7ED] px-3 py-1.5 text-[#C2410C] shadow-soft hover:bg-[#FFF7ED]">
-                                    <Zap className="mr-1 h-3.5 w-3.5" />
-                                    {activeSurgeZone.surge_multiplier}x surge
+                            <div className="flex max-w-[calc(100%-56px)] flex-wrap justify-end gap-2">
+                                <Badge className="rounded-full bg-white px-3 py-1.5 text-[#101820] shadow-soft hover:bg-white">
+                                    <Star className="mr-1 h-3.5 w-3.5 text-[#F59E0B]" />
+                                    {rider?.average_rating || "5.0"} rating
                                 </Badge>
-                            ) : null}
+
+                                <Badge className="rounded-full bg-white px-3 py-1.5 text-[#101820] shadow-soft hover:bg-white">
+                                    <Car className="mr-1 h-3.5 w-3.5 text-[#008C78]" />
+                                    {nearbyDriversQuery.isLoading
+                                        ? "Loading"
+                                        : `${nearbyDrivers.length} nearby`}
+                                </Badge>
+
+                                {activeSurgeZone ? (
+                                    <Badge className="rounded-full bg-[#FFF7ED] px-3 py-1.5 text-[#C2410C] shadow-soft hover:bg-[#FFF7ED]">
+                                        <Zap className="mr-1 h-3.5 w-3.5" />
+                                        {activeSurgeZone.surge_multiplier}x surge
+                                    </Badge>
+                                ) : null}
+                            </div>
                         </div>
                     </header>
                 </div>

@@ -76,14 +76,20 @@ export default function App() {
                 <Route path="/rider/rides" element={<RiderRideHistoryPage />} />
                 <Route
                     path="/rider/profile"
-                    element={<PlaceholderPage title="Rider Profile" />}
+                    element={<ProfilePage />}
                 />
             </Route>
-            <Route path="/profile" element={<ProfilePage />} />
+
+            <Route
+                element={
+                    <RequireAuth allowedRoles={["rider", "driver", "admin"]} />
+                }
+            >
+                <Route path="/profile" element={<ProfilePage />} />
+            </Route>
 
             <Route element={<RequireAuth allowedRoles={["driver"]} />}>
                 <Route path="/driver/home" element={<DriverHomePage />} />
-                <Route path="/drive/home" element={<DriverHomePage />} />
                 <Route
                     path="/driver/onboarding"
                     element={<DriverOnboardingPage />}

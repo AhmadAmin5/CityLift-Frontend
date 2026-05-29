@@ -15,7 +15,11 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
+import { toast } from "sonner";
 
+import { ErrorState } from "@/common/ErrorState";
+import { LoadingState } from "@/common/LoadingState";
+import { getApiErrorMessage } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -39,49 +43,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-
-const initialVehicles = [
-  {
-    id: "vehicle_001",
-    make: "Toyota",
-    model: "Corolla",
-    year: "2020",
-    plate_number: "LEA-1234",
-    color: "White",
-    vehicle_type: "car",
-    is_active: true,
-    verification_status: "approved",
-    documents_status: "approved",
-    added_at: "May 24, 2026",
-  },
-  {
-    id: "vehicle_002",
-    make: "Honda",
-    model: "City",
-    year: "2019",
-    plate_number: "LEB-7788",
-    color: "Silver",
-    vehicle_type: "car",
-    is_active: false,
-    verification_status: "pending",
-    documents_status: "pending",
-    added_at: "May 27, 2026",
-  },
-  {
-    id: "vehicle_003",
-    make: "Suzuki",
-    model: "Alto",
-    year: "2021",
-    plate_number: "LEC-9088",
-    color: "Black",
-    vehicle_type: "mini",
-    is_active: false,
-    verification_status: "rejected",
-    documents_status: "rejected",
-    rejection_reason: "Plate number image did not match vehicle registration.",
-    added_at: "May 20, 2026",
-  },
-];
+import {
+  useCreateDriverVehicle,
+  useDriverVehicles,
+  useSetActiveDriverVehicle,
+  useUpdateDriverVehicle,
+} from "@/hooks/driver/useDriverVehicles";
+import { useDriverDocuments } from "@/hooks/driver/useDriverDocuments";
 
 const emptyVehicleDraft = {
   id: null,
@@ -96,6 +64,39 @@ const emptyVehicleDraft = {
   documents_status: "missing",
   rejection_reason: null,
 };
+
+function getDocumentTimestamp(document) {
+  const timestamp = document?.uploaded_at || document?.updated_at || "";
+  const value = Date.parse(timestamp);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function getVehicleRegistrationDocument(documents, vehicleId) {
+  return documents
+    .filter(
+      (document) =>
+        document.document_type === "vehicle_registration" &&
+        document.vehicle_id === vehicleId
+    )
+    .sort((a, b) => getDocumentTimestamp(b) - getDocumentTimestamp(a))[0];
+}
+
+function toVehicleView(vehicle, documents = []) {
+  const registrationDocument = getVehicleRegistrationDocument(
+    documents,
+    vehicle.id
+  );
+
+  return {
+    documents_status: "missing",
+    ...vehicle,
+    year: String(vehicle.year || ""),
+    vehicle_type: vehicle.vehicle_type || "car",
+    verification_status: vehicle.verification_status || "pending",
+    documents_status: registrationDocument?.status || "missing",
+    documents_rejection_reason: registrationDocument?.rejection_reason || null,
+  };
+}
 
 function getStatusConfig(status) {
   if (status === "approved") {
@@ -333,6 +334,17 @@ function VehicleCard({ vehicle, onEdit, onSetActive, onDelete, onDocuments }) {
         </div>
       ) : null}
 
+      {vehicle.documents_rejection_reason ? (
+        <div className="mt-4 rounded-[18px] border border-red-100 bg-red-50 p-3">
+          <div className="flex gap-3">
+            <FileCheck2 className="mt-0.5 h-4 w-4 shrink-0 text-[#DC2626]" />
+            <p className="text-sm leading-5 text-[#991B1B]">
+              {vehicle.documents_rejection_reason}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       <Separator className="my-4 bg-[#E1E5EA]" />
 
       <div className="grid grid-cols-2 gap-3">
@@ -428,6 +440,7 @@ function VehicleSheet({
   onOpenChange,
   onDraftChange,
   onSave,
+  isSaving,
 }) {
   const isEditing = Boolean(draft.id);
 
@@ -452,7 +465,7 @@ function VehicleSheet({
           </SheetTitle>
 
           <SheetDescription className="text-base leading-6 text-[#4B5563]">
-            UI-only vehicle form. API wiring will come later.
+            Add or update vehicle details for driver verification.
           </SheetDescription>
         </SheetHeader>
 
@@ -468,10 +481,10 @@ function VehicleSheet({
             >
               <TabsList className="grid h-12 w-full grid-cols-3 rounded-[16px] bg-[#F7F8FA] p-1">
                 <TabsTrigger
-                  value="mini"
+                  value="bike"
                   className="rounded-[12px] text-sm font-semibold data-[state=active]:bg-[#E8F7F4] data-[state=active]:text-[#008C78]"
                 >
-                  Mini
+                  Bike
                 </TabsTrigger>
 
                 <TabsTrigger
@@ -482,10 +495,10 @@ function VehicleSheet({
                 </TabsTrigger>
 
                 <TabsTrigger
-                  value="premium"
+                  value="rickshaw"
                   className="rounded-[12px] text-sm font-semibold data-[state=active]:bg-[#E8F7F4] data-[state=active]:text-[#008C78]"
                 >
-                  Premium
+                  Rickshaw
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -581,10 +594,11 @@ function VehicleSheet({
           <Button
             type="button"
             onClick={onSave}
+            disabled={isSaving}
             className="h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60]"
           >
             <CheckCircle2 className="mr-2 h-5 w-5" />
-            {isEditing ? "Save vehicle" : "Add vehicle"}
+            {isSaving ? "Saving..." : isEditing ? "Save vehicle" : "Add vehicle"}
           </Button>
         </div>
       </SheetContent>
@@ -595,11 +609,26 @@ function VehicleSheet({
 export default function DriverVehiclesPage() {
   const navigate = useNavigate();
 
-  const [vehicles, setVehicles] = useState(initialVehicles);
+  const vehiclesQuery = useDriverVehicles();
+  const documentsQuery = useDriverDocuments();
+  const createVehicleMutation = useCreateDriverVehicle();
+  const updateVehicleMutation = useUpdateDriverVehicle();
+  const setActiveVehicleMutation = useSetActiveDriverVehicle();
+
   const [activeTab, setActiveTab] = useState("all");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [draft, setDraft] = useState(emptyVehicleDraft);
   const [vehicleToDelete, setVehicleToDelete] = useState(null);
+
+  const vehicles = useMemo(
+    () =>
+      (vehiclesQuery.data || []).map((vehicle) =>
+        toVehicleView(vehicle, documentsQuery.data || [])
+      ),
+    [documentsQuery.data, vehiclesQuery.data]
+  );
+  const isSaving =
+    createVehicleMutation.isPending || updateVehicleMutation.isPending;
 
   const filteredVehicles = useMemo(() => {
     if (activeTab === "all") return vehicles;
@@ -619,52 +648,48 @@ export default function DriverVehiclesPage() {
     setSheetOpen(true);
   }
 
-  function saveVehicleUiOnly() {
+  async function saveVehicle() {
     const safeVehicle = {
-      ...draft,
-      id: draft.id || `vehicle_${Date.now()}`,
       make: draft.make.trim() || "Toyota",
       model: draft.model.trim() || "Corolla",
-      year: draft.year.trim() || "2020",
+      year: Number(draft.year || 2020),
       plate_number: draft.plate_number.trim() || "LEA-0000",
       color: draft.color.trim() || "White",
-      verification_status: draft.id ? draft.verification_status : "pending",
-      documents_status: draft.id ? draft.documents_status : "missing",
-      is_active: draft.id ? draft.is_active : false,
+      vehicle_type: draft.vehicle_type || "car",
     };
 
-    if (draft.id) {
-      setVehicles((current) =>
-        current.map((vehicle) =>
-          vehicle.id === draft.id ? safeVehicle : vehicle
-        )
-      );
-    } else {
-      setVehicles((current) => [safeVehicle, ...current]);
-    }
+    try {
+      if (draft.id) {
+        await updateVehicleMutation.mutateAsync({
+          vehicle_id: draft.id,
+          ...safeVehicle,
+        });
+        toast.success("Vehicle updated");
+      } else {
+        await createVehicleMutation.mutateAsync(safeVehicle);
+        toast.success("Vehicle added");
+      }
 
-    setSheetOpen(false);
-    setDraft(emptyVehicleDraft);
+      setSheetOpen(false);
+      setDraft(emptyVehicleDraft);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error));
+    }
   }
 
-  function setActiveVehicle(vehicle) {
+  async function setActiveVehicle(vehicle) {
     if (vehicle.verification_status !== "approved") return;
 
-    setVehicles((current) =>
-      current.map((item) => ({
-        ...item,
-        is_active: item.id === vehicle.id,
-      }))
-    );
+    try {
+      await setActiveVehicleMutation.mutateAsync(vehicle.id);
+      toast.success("Active vehicle updated");
+    } catch (error) {
+      toast.error(getApiErrorMessage(error));
+    }
   }
 
   function confirmDeleteVehicle() {
-    if (!vehicleToDelete) return;
-
-    setVehicles((current) =>
-      current.filter((vehicle) => vehicle.id !== vehicleToDelete.id)
-    );
-
+    toast.info("Vehicle deletion is not available on the backend yet.");
     setVehicleToDelete(null);
   }
 
@@ -707,9 +732,20 @@ export default function DriverVehiclesPage() {
         </header>
 
         <div className="mt-8 space-y-4">
-          <VehiclesHero vehicles={vehicles} />
+          {vehiclesQuery.isLoading || documentsQuery.isLoading ? (
+            <LoadingState label="Loading vehicles..." />
+          ) : vehiclesQuery.isError || documentsQuery.isError ? (
+            <ErrorState
+              message={
+                getApiErrorMessage(vehiclesQuery.error || documentsQuery.error) ||
+                "Could not load vehicles."
+              }
+            />
+          ) : (
+            <>
+              <VehiclesHero vehicles={vehicles} />
 
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid h-12 w-full grid-cols-4 rounded-[16px] bg-[#F7F8FA] p-1">
               <TabsTrigger
                 value="all"
@@ -739,9 +775,9 @@ export default function DriverVehiclesPage() {
                 Pending
               </TabsTrigger>
             </TabsList>
-          </Tabs>
+              </Tabs>
 
-          <Card className="rounded-[24px] border-[#E1E5EA] bg-[#F7F8FA] p-4 shadow-none">
+              <Card className="rounded-[24px] border-[#E1E5EA] bg-[#F7F8FA] p-4 shadow-none">
             <div className="flex items-start gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white">
                 <Gauge className="h-5 w-5 text-[#008C78]" />
@@ -757,9 +793,9 @@ export default function DriverVehiclesPage() {
                 </p>
               </div>
             </div>
-          </Card>
+              </Card>
 
-          <div className="space-y-4">
+              <div className="space-y-4">
             {filteredVehicles.length ? (
               filteredVehicles.map((vehicle) => (
                 <VehicleCard
@@ -774,16 +810,18 @@ export default function DriverVehiclesPage() {
             ) : (
               <EmptyVehicles onAdd={openAddSheet} />
             )}
-          </div>
+              </div>
 
-          <Button
-            type="button"
-            onClick={openAddSheet}
-            className="h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60]"
-          >
-            <Plus className="mr-2 h-5 w-5" />
-            Add new vehicle
-          </Button>
+              <Button
+                type="button"
+                onClick={openAddSheet}
+                className="h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60]"
+              >
+                <Plus className="mr-2 h-5 w-5" />
+                Add new vehicle
+              </Button>
+            </>
+          )}
         </div>
 
         <VehicleSheet
@@ -791,7 +829,8 @@ export default function DriverVehiclesPage() {
           draft={draft}
           onOpenChange={setSheetOpen}
           onDraftChange={setDraft}
-          onSave={saveVehicleUiOnly}
+          onSave={saveVehicle}
+          isSaving={isSaving}
         />
 
         <AlertDialog
@@ -812,7 +851,7 @@ export default function DriverVehiclesPage() {
                   {vehicleToDelete?.color} {vehicleToDelete?.make}{" "}
                   {vehicleToDelete?.model}
                 </span>{" "}
-                from your vehicles. This is UI-only for now.
+                from your vehicles. Backend deletion is not available yet.
               </AlertDialogDescription>
             </AlertDialogHeader>
 

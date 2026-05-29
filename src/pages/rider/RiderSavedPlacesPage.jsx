@@ -1,14 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   BriefcaseBusiness,
   CheckCircle2,
+  Clock,
   Edit3,
   Heart,
   Home,
+  Info,
+  LocateFixed,
   MapPin,
-  MoreVertical,
   Navigation,
   Plus,
   Search,
@@ -22,7 +24,6 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Sheet,
@@ -41,45 +42,79 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
-const initialSavedPlaces = [
-  {
-    id: "saved_place_001",
-    label: "Home",
-    place_type: "home",
-    address: "Gulberg, Lahore",
-    note: "Main gate, street 12",
-  },
-  {
-    id: "saved_place_002",
-    label: "Work",
-    place_type: "work",
-    address: "Johar Town, Lahore",
-    note: "Office tower entrance",
-  },
-  {
-    id: "saved_place_003",
-    label: "Gym",
-    place_type: "favorite",
-    address: "MM Alam Road, Lahore",
-    note: "Evening pickup spot",
-  },
-  {
-    id: "saved_place_004",
-    label: "University",
-    place_type: "favorite",
-    address: "Canal Road, Lahore",
-    note: "Gate 2",
-  },
-];
+import { ErrorState } from "@/common/ErrorState";
+import { LoadingState } from "@/common/LoadingState";
+import { getApiErrorMessage } from "@/api/client";
+import {
+  useCreateSavedPlace,
+  useDeleteSavedPlace,
+  useSavedPlaces,
+  useUpdateSavedPlace,
+} from "@/hooks/rider/useSavedPlaces";
+import { useAddressAutocomplete } from "@/hooks/maps/useAddressAutocomplete";
+import { useReverseGeocode } from "@/hooks/maps/useReverseGeocode";
+import { normalizeLocation } from "@/utils/locationUtils";
+import { toast } from "sonner";
 
 const emptyDraft = {
   id: null,
   label: "",
   place_type: "favorite",
+  latitude: 31.5204,
+  longitude: 74.3587,
   address: "",
+  provider: "mapbox",
+  provider_place_id: null,
   note: "",
+  usage_count: 0,
+  last_used_at: "Never",
+  created_at: "Today",
 };
+
+function formatSavedPlaceDate(timestamp) {
+  if (!timestamp) return "Today";
+
+  try {
+    return new Intl.DateTimeFormat("en", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(new Date(timestamp));
+  } catch {
+    return timestamp;
+  }
+}
+
+function normalizeSavedPlaceForUi(place) {
+  return {
+    ...emptyDraft,
+    ...place,
+    label: place?.label || "Saved place",
+    place_type: place?.place_type || "favorite",
+    latitude: Number(place?.latitude || emptyDraft.latitude),
+    longitude: Number(place?.longitude || emptyDraft.longitude),
+    address: place?.address || "Saved location",
+    provider: place?.provider || "mapbox",
+    provider_place_id: place?.provider_place_id || null,
+    note: place?.note || "",
+    usage_count: Number(place?.usage_count || 0),
+    last_used_at: place?.last_used_at || "Never",
+    created_at: formatSavedPlaceDate(place?.created_at),
+    updated_at: place?.updated_at,
+  };
+}
+
+function buildSavedPlacePayload(draft) {
+  return {
+    label: draft.label.trim() || "Saved place",
+    place_type: draft.place_type || "favorite",
+    latitude: Number(draft.latitude || 31.5204),
+    longitude: Number(draft.longitude || 74.3587),
+    address: draft.address.trim() || "Selected location, Lahore",
+    provider: draft.provider || "mapbox",
+    provider_place_id: draft.provider_place_id || null,
+  };
+}
 
 function getPlaceTypeConfig(placeType) {
   if (placeType === "home") {
@@ -87,7 +122,7 @@ function getPlaceTypeConfig(placeType) {
       label: "Home",
       icon: Home,
       badgeClass: "bg-[#E8F7F4] text-[#008C78] hover:bg-[#E8F7F4]",
-      iconWrapClass: "bg-[#E8F7F4]",
+      panelClass: "bg-[#E8F7F4]",
       iconClass: "text-[#008C78]",
     };
   }
@@ -97,7 +132,7 @@ function getPlaceTypeConfig(placeType) {
       label: "Work",
       icon: BriefcaseBusiness,
       badgeClass: "bg-[#EEF2FF] text-[#2563EB] hover:bg-[#EEF2FF]",
-      iconWrapClass: "bg-[#EEF2FF]",
+      panelClass: "bg-[#EEF2FF]",
       iconClass: "text-[#2563EB]",
     };
   }
@@ -106,9 +141,61 @@ function getPlaceTypeConfig(placeType) {
     label: "Favorite",
     icon: Heart,
     badgeClass: "bg-[#FFF7ED] text-[#C2410C] hover:bg-[#FFF7ED]",
-    iconWrapClass: "bg-[#FFF7ED]",
+    panelClass: "bg-[#FFF7ED]",
     iconClass: "text-[#F59E0B]",
   };
+}
+
+function createPlaceFromSuggestion(suggestion, draft) {
+  const selectedPlace = normalizeLocation(suggestion, draft);
+
+  if (!selectedPlace) return draft;
+
+  return {
+    ...draft,
+    latitude: selectedPlace.latitude,
+    longitude: selectedPlace.longitude,
+    address: selectedPlace.address,
+    provider: selectedPlace.provider,
+    provider_place_id: selectedPlace.provider_place_id,
+  };
+}
+
+function MiniMapPreview({ place, compact = false }) {
+  return (
+    <div
+      className={
+        compact
+          ? "relative h-[150px] overflow-hidden rounded-[22px] bg-[#EAF2F0]"
+          : "relative h-[210px] overflow-hidden rounded-[24px] bg-[#EAF2F0]"
+      }
+    >
+      <div className="absolute inset-0 opacity-70">
+        <div className="absolute left-[-22%] top-6 h-24 w-[145%] rotate-[-12deg] rounded-full border-[14px] border-white/80" />
+        <div className="absolute left-[-12%] top-24 h-20 w-[125%] rotate-[18deg] rounded-full border-[12px] border-white/70" />
+        <div className="absolute bottom-4 left-[-18%] h-20 w-[135%] rotate-[-4deg] rounded-full border-[10px] border-white/70" />
+      </div>
+
+      <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-full">
+        <div className="absolute inset-0 h-14 w-14 animate-ping rounded-full bg-[#008C78]/15" />
+        <div className="relative flex h-14 w-14 items-center justify-center rounded-full bg-[#008C78] text-white shadow-card">
+          <MapPin className="h-7 w-7" />
+        </div>
+        <div className="mx-auto mt-1 h-2 w-2 rounded-full bg-[#008C78]" />
+      </div>
+
+      <div className="absolute bottom-3 left-3 right-3 rounded-[18px] border border-white/70 bg-white/95 p-3 shadow-soft backdrop-blur">
+        <p className="truncate text-sm font-bold text-[#101820]">
+          {place?.address || "Select a location"}
+        </p>
+        {place?.latitude && place?.longitude ? (
+          <p className="mt-0.5 text-xs text-[#4B5563]">
+            {Number(place.latitude).toFixed(4)}, {Number(place.longitude).toFixed(4)}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function SavedPlacesHero({ places }) {
@@ -123,21 +210,21 @@ function SavedPlacesHero({ places }) {
       <div className="flex items-start justify-between gap-4">
         <div>
           <Badge className="rounded-full bg-white px-3 py-1.5 text-[#008C78] shadow-soft hover:bg-white">
-            <MapPin className="mr-1.5 h-3.5 w-3.5" />
-            Saved shortcuts
+            <Star className="mr-1.5 h-3.5 w-3.5" />
+            Quick booking
           </Badge>
 
           <h1 className="mt-4 text-[32px] font-bold leading-9 tracking-[-0.04em] text-[#101820]">
-            Your places
+            Saved places
           </h1>
 
           <p className="mt-2 text-sm leading-5 text-[#4B5563]">
-            Keep frequent pickup and dropoff locations ready.
+            Save your frequent pickups and destinations for faster ride booking.
           </p>
         </div>
 
         <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] bg-white shadow-soft">
-          <Star className="h-7 w-7 text-[#008C78]" />
+          <MapPin className="h-7 w-7 text-[#008C78]" />
         </div>
       </div>
 
@@ -166,7 +253,7 @@ function SavedPlacesHero({ places }) {
   );
 }
 
-function SavedPlaceCard({ place, onEdit, onDelete }) {
+function SavedPlaceCard({ place, onUse, onDetails, onEdit, onDelete }) {
   const config = getPlaceTypeConfig(place.place_type);
   const TypeIcon = config.icon;
 
@@ -174,7 +261,7 @@ function SavedPlaceCard({ place, onEdit, onDelete }) {
     <Card className="rounded-[24px] border-[#E1E5EA] bg-white p-4 shadow-sm">
       <div className="flex items-start gap-3">
         <div
-          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] ${config.iconWrapClass}`}
+          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] ${config.panelClass}`}
         >
           <TypeIcon className={`h-6 w-6 ${config.iconClass}`} />
         </div>
@@ -185,7 +272,6 @@ function SavedPlaceCard({ place, onEdit, onDelete }) {
               <p className="truncate text-lg font-bold tracking-[-0.02em] text-[#101820]">
                 {place.label}
               </p>
-
               <p className="mt-1 line-clamp-2 text-sm leading-5 text-[#4B5563]">
                 {place.address}
               </p>
@@ -196,10 +282,36 @@ function SavedPlaceCard({ place, onEdit, onDelete }) {
             </Badge>
           </div>
 
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <div className="rounded-[16px] bg-[#F7F8FA] p-3">
+              <Clock className="h-4 w-4 text-[#008C78]" />
+              <p className="mt-2 truncate text-sm font-bold text-[#101820]">
+                {place.last_used_at}
+              </p>
+              <p className="text-xs text-[#8A9099]">Last used</p>
+            </div>
+
+            <div className="rounded-[16px] bg-[#F7F8FA] p-3">
+              <Navigation className="h-4 w-4 text-[#008C78]" />
+              <p className="mt-2 text-sm font-bold text-[#101820]">
+                {place.usage_count}
+              </p>
+              <p className="text-xs text-[#8A9099]">Trips</p>
+            </div>
+
+            <div className="rounded-[16px] bg-[#F7F8FA] p-3">
+              <LocateFixed className="h-4 w-4 text-[#008C78]" />
+              <p className="mt-2 text-sm font-bold text-[#101820]">
+                {Number(place.latitude).toFixed(2)}
+              </p>
+              <p className="text-xs text-[#8A9099]">Lat</p>
+            </div>
+          </div>
+
           {place.note ? (
-            <div className="mt-3 rounded-[16px] bg-[#F7F8FA] p-3">
-              <p className="text-xs font-medium text-[#8A9099]">Note</p>
-              <p className="mt-1 text-sm font-medium text-[#101820]">
+            <div className="mt-4 rounded-[18px] bg-[#F7F8FA] p-3">
+              <p className="text-xs font-medium text-[#8A9099]">Pickup note</p>
+              <p className="mt-1 text-sm font-semibold text-[#101820]">
                 {place.note}
               </p>
             </div>
@@ -207,23 +319,35 @@ function SavedPlaceCard({ place, onEdit, onDelete }) {
 
           <Separator className="my-4 bg-[#E1E5EA]" />
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-3">
             <Button
               type="button"
-              variant="outline"
-              className="h-11 rounded-[14px] border-[#E1E5EA] bg-white text-sm font-semibold text-[#101820]"
+              onClick={() => onUse(place)}
+              className="h-[48px] rounded-[14px] bg-[#008C78] text-sm font-semibold text-white hover:bg-[#006F60]"
             >
-              <Navigation className="mr-1.5 h-4 w-4 text-[#008C78]" />
-              Use
+              <Navigation className="mr-2 h-4 w-4" />
+              Use place
             </Button>
 
             <Button
               type="button"
               variant="outline"
-              onClick={() => onEdit(place)}
-              className="h-11 rounded-[14px] border-[#E1E5EA] bg-white text-sm font-semibold text-[#101820]"
+              onClick={() => onDetails(place)}
+              className="h-[48px] rounded-[14px] border-[#E1E5EA] bg-white text-sm font-semibold text-[#101820]"
             >
-              <Edit3 className="mr-1.5 h-4 w-4 text-[#008C78]" />
+              <Info className="mr-2 h-4 w-4 text-[#008C78]" />
+              Details
+            </Button>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onEdit(place)}
+              className="h-[48px] rounded-[14px] border-[#E1E5EA] bg-white text-sm font-semibold text-[#101820]"
+            >
+              <Edit3 className="mr-2 h-4 w-4 text-[#008C78]" />
               Edit
             </Button>
 
@@ -231,9 +355,9 @@ function SavedPlaceCard({ place, onEdit, onDelete }) {
               type="button"
               variant="outline"
               onClick={() => onDelete(place)}
-              className="h-11 rounded-[14px] border-[#E1E5EA] bg-white text-sm font-semibold text-[#DC2626]"
+              className="h-[48px] rounded-[14px] border-[#E1E5EA] bg-white text-sm font-semibold text-[#DC2626]"
             >
-              <Trash2 className="mr-1.5 h-4 w-4" />
+              <Trash2 className="mr-2 h-4 w-4" />
               Delete
             </Button>
           </div>
@@ -251,11 +375,11 @@ function EmptySavedPlaces({ onAdd }) {
       </div>
 
       <h2 className="mt-5 text-xl font-bold text-[#101820]">
-        No saved places found
+        No places found
       </h2>
 
       <p className="mt-2 text-sm leading-5 text-[#4B5563]">
-        Add Home, Work, or favorite destinations for faster booking.
+        Add Home, Work, or favorite locations to reuse them while booking.
       </p>
 
       <Button
@@ -270,14 +394,277 @@ function EmptySavedPlaces({ onAdd }) {
   );
 }
 
-function SavedPlaceSheet({
+function PlaceDetailsSheet({ place, open, onOpenChange, onUse, onEdit }) {
+  if (!place) return null;
+
+  const config = getPlaceTypeConfig(place.place_type);
+  const TypeIcon = config.icon;
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="bottom"
+        className="max-h-[92vh] overflow-y-auto rounded-t-[28px] border-[#E1E5EA] bg-white px-6 pb-6 pt-4"
+      >
+        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#D7DCE2]" />
+
+        <SheetHeader className="text-left">
+          <div className="flex items-start gap-3">
+            <div
+              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] ${config.panelClass}`}
+            >
+              <TypeIcon className={`h-6 w-6 ${config.iconClass}`} />
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <SheetTitle className="truncate text-[24px] font-bold tracking-[-0.03em] text-[#101820]">
+                {place.label}
+              </SheetTitle>
+              <SheetDescription className="mt-1 text-base leading-6 text-[#4B5563]">
+                {place.address}
+              </SheetDescription>
+            </div>
+          </div>
+        </SheetHeader>
+
+        <div className="mt-6 space-y-4">
+          <MiniMapPreview place={place} />
+
+          <div className="grid grid-cols-2 gap-3">
+            <Card className="rounded-[18px] border-[#E1E5EA] bg-white p-3 shadow-sm">
+              <Navigation className="h-4 w-4 text-[#008C78]" />
+              <p className="mt-2 text-lg font-bold text-[#101820]">
+                {place.usage_count}
+              </p>
+              <p className="text-xs text-[#8A9099]">Trips used</p>
+            </Card>
+
+            <Card className="rounded-[18px] border-[#E1E5EA] bg-white p-3 shadow-sm">
+              <Clock className="h-4 w-4 text-[#008C78]" />
+              <p className="mt-2 text-lg font-bold text-[#101820]">
+                {place.last_used_at}
+              </p>
+              <p className="text-xs text-[#8A9099]">Last used</p>
+            </Card>
+          </div>
+
+          <Card className="rounded-[24px] border-[#E1E5EA] bg-white p-4 shadow-sm">
+            <h3 className="text-base font-bold text-[#101820]">
+              Location details
+            </h3>
+
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-sm text-[#4B5563]">Type</p>
+                <Badge className={`rounded-full px-3 py-1.5 ${config.badgeClass}`}>
+                  {config.label}
+                </Badge>
+              </div>
+
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-sm text-[#4B5563]">Provider</p>
+                <p className="text-sm font-bold capitalize text-[#101820]">
+                  {place.provider}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-sm text-[#4B5563]">Latitude</p>
+                <p className="text-sm font-bold text-[#101820]">
+                  {Number(place.latitude).toFixed(5)}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-sm text-[#4B5563]">Longitude</p>
+                <p className="text-sm font-bold text-[#101820]">
+                  {Number(place.longitude).toFixed(5)}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-sm text-[#4B5563]">Added</p>
+                <p className="text-sm font-bold text-[#101820]">
+                  {place.created_at}
+                </p>
+              </div>
+            </div>
+          </Card>
+
+          {place.note ? (
+            <Card className="rounded-[24px] border-[#E1E5EA] bg-[#F7F8FA] p-4 shadow-none">
+              <p className="text-sm font-bold text-[#101820]">Pickup note</p>
+              <p className="mt-2 text-sm leading-6 text-[#4B5563]">
+                {place.note}
+              </p>
+            </Card>
+          ) : null}
+
+          <div className="grid grid-cols-2 gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onEdit(place)}
+              className="h-[52px] rounded-[14px] border-[#E1E5EA] bg-white text-base font-semibold text-[#101820]"
+            >
+              <Edit3 className="mr-2 h-5 w-5 text-[#008C78]" />
+              Edit
+            </Button>
+
+            <Button
+              type="button"
+              onClick={() => onUse(place)}
+              className="h-[52px] rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60]"
+            >
+              <Navigation className="mr-2 h-5 w-5" />
+              Use
+            </Button>
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function UsePlaceSheet({ place, open, onOpenChange, onStartBooking }) {
+  const [mode, setMode] = useState("dropoff");
+
+  if (!place) return null;
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="bottom"
+        className="max-h-[92vh] overflow-y-auto rounded-t-[28px] border-[#E1E5EA] bg-white px-6 pb-6 pt-4"
+      >
+        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#D7DCE2]" />
+
+        <SheetHeader className="text-left">
+          <SheetTitle className="text-[24px] font-bold tracking-[-0.03em] text-[#101820]">
+            Use {place.label}
+          </SheetTitle>
+          <SheetDescription className="text-base leading-6 text-[#4B5563]">
+            Choose how this saved place should be used in your next booking.
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="mt-6 space-y-4">
+          <MiniMapPreview place={place} compact />
+
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setMode("pickup")}
+              className={
+                mode === "pickup"
+                  ? "rounded-[18px] border border-[#008C78] bg-[#E8F7F4] p-4 text-left"
+                  : "rounded-[18px] border border-[#E1E5EA] bg-white p-4 text-left"
+              }
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white">
+                <MapPin className="h-5 w-5 text-[#008C78]" />
+              </div>
+              <p className="mt-3 text-sm font-bold text-[#101820]">
+                Set as pickup
+              </p>
+              <p className="mt-1 text-xs leading-4 text-[#4B5563]">
+                Start from this place.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMode("dropoff")}
+              className={
+                mode === "dropoff"
+                  ? "rounded-[18px] border border-[#008C78] bg-[#E8F7F4] p-4 text-left"
+                  : "rounded-[18px] border border-[#E1E5EA] bg-white p-4 text-left"
+              }
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white">
+                <Navigation className="h-5 w-5 text-[#008C78]" />
+              </div>
+              <p className="mt-3 text-sm font-bold text-[#101820]">
+                Set as dropoff
+              </p>
+              <p className="mt-1 text-xs leading-4 text-[#4B5563]">
+                Ride to this place.
+              </p>
+            </button>
+          </div>
+
+          <Card className="rounded-[24px] border-[#E1E5EA] bg-[#F7F8FA] p-4 shadow-none">
+            <div className="flex gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white">
+                {mode === "pickup" ? (
+                  <MapPin className="h-5 w-5 text-[#008C78]" />
+                ) : (
+                  <Navigation className="h-5 w-5 text-[#008C78]" />
+                )}
+              </div>
+
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-[#101820]">
+                  {mode === "pickup" ? "Pickup selected" : "Dropoff selected"}
+                </p>
+                <p className="mt-1 line-clamp-2 text-sm leading-5 text-[#4B5563]">
+                  {place.address}
+                </p>
+              </div>
+            </div>
+          </Card>
+
+          <Button
+            type="button"
+            onClick={() => onStartBooking(place, mode)}
+            className="h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60]"
+          >
+            <Navigation className="mr-2 h-5 w-5" />
+            Continue to booking
+          </Button>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function PlaceEditorSheet({
   open,
   draft,
+  existingPlaces,
   onOpenChange,
   onDraftChange,
   onSave,
+  isSaving = false,
 }) {
+  const [addressQuery, setAddressQuery] = useState(draft.address || "");
+
   const isEditing = Boolean(draft.id);
+  const autocompleteQuery = useAddressAutocomplete({
+    q: addressQuery,
+    latitude: draft.latitude,
+    longitude: draft.longitude,
+  });
+  const reverseGeocodeMutation = useReverseGeocode();
+
+  useEffect(() => {
+    if (open) setAddressQuery(draft.address || "");
+  }, [draft.address, draft.id, open]);
+
+  const filteredSuggestions = useMemo(() => {
+    if (addressQuery.trim().length < 2) return [];
+    return autocompleteQuery.data || [];
+  }, [addressQuery, autocompleteQuery.data]);
+
+  const homeExists = existingPlaces.some(
+    (place) => place.place_type === "home" && place.id !== draft.id
+  );
+  const workExists = existingPlaces.some(
+    (place) => place.place_type === "work" && place.id !== draft.id
+  );
+
+  const isHomeDisabled = homeExists && draft.place_type !== "home";
+  const isWorkDisabled = workExists && draft.place_type !== "work";
 
   function updateField(field, value) {
     onDraftChange({
@@ -286,11 +673,60 @@ function SavedPlaceSheet({
     });
   }
 
+  function selectSuggestion(suggestion) {
+    const nextDraft = createPlaceFromSuggestion(suggestion, draft);
+    setAddressQuery(nextDraft.address || "");
+    onDraftChange(nextDraft);
+  }
+
+  async function nudgePin() {
+    const latitude = Number(draft.latitude || 31.5204) + 0.0012;
+    const longitude = Number(draft.longitude || 74.3587) + 0.0015;
+
+    try {
+      const data = await reverseGeocodeMutation.mutateAsync({
+        latitude,
+        longitude,
+      });
+      const resolvedPlace = normalizeLocation(data, {
+        latitude,
+        longitude,
+        address: "Adjusted map pin, Lahore",
+        provider: "mapbox",
+        provider_place_id:
+          draft.provider_place_id || "mapbox.place.adjusted_pin",
+      });
+
+      const nextDraft = {
+        ...draft,
+        ...(resolvedPlace || {
+          latitude,
+          longitude,
+          address: "Adjusted map pin, Lahore",
+          provider: "mapbox",
+          provider_place_id:
+            draft.provider_place_id || "mapbox.place.adjusted_pin",
+        }),
+      };
+
+      setAddressQuery(nextDraft.address || "");
+      onDraftChange(nextDraft);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error));
+    }
+  }
+
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet
+      open={open}
+      onOpenChange={(nextOpen) => {
+        onOpenChange(nextOpen);
+        if (nextOpen) setAddressQuery(draft.address || "");
+      }}
+    >
       <SheetContent
         side="bottom"
-        className="rounded-t-[28px] border-[#E1E5EA] bg-white px-6 pb-6 pt-4"
+        className="max-h-[94vh] overflow-y-auto rounded-t-[28px] border-[#E1E5EA] bg-white px-6 pb-6 pt-4"
       >
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#D7DCE2]" />
 
@@ -300,48 +736,94 @@ function SavedPlaceSheet({
           </SheetTitle>
 
           <SheetDescription className="text-base leading-6 text-[#4B5563]">
-            This is UI-only. Later this form will save through the saved places
-            API.
+            Save a location with a label, type, and address.
           </SheetDescription>
         </SheetHeader>
 
-        <div className="mt-6 space-y-4">
+        <div className="mt-6 space-y-5">
           <div>
-            <p className="mb-2 text-sm font-semibold text-[#101820]">Type</p>
+            <p className="mb-2 text-sm font-semibold text-[#101820]">
+              Place type
+            </p>
 
-            <Tabs
-              value={draft.place_type}
-              onValueChange={(value) => updateField("place_type", value)}
-            >
-              <TabsList className="grid h-12 w-full grid-cols-3 rounded-[16px] bg-[#F7F8FA] p-1">
-                <TabsTrigger
-                  value="home"
-                  className="rounded-[12px] text-sm font-semibold data-[state=active]:bg-[#E8F7F4] data-[state=active]:text-[#008C78]"
-                >
-                  Home
-                </TabsTrigger>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                disabled={isEditing || isHomeDisabled}
+                onClick={() => {
+                  onDraftChange({
+                    ...draft,
+                    place_type: "home",
+                    label: draft.label || "Home",
+                  });
+                }}
+                className={
+                  draft.place_type === "home"
+                    ? "rounded-[16px] border border-[#008C78] bg-[#E8F7F4] p-3 text-center text-sm font-semibold text-[#008C78]"
+                    : isEditing || isHomeDisabled
+                      ? "rounded-[16px] border border-[#E1E5EA] bg-[#F7F8FA] p-3 text-center text-sm font-semibold text-[#8A9099]"
+                      : "rounded-[16px] border border-[#E1E5EA] bg-white p-3 text-center text-sm font-semibold text-[#4B5563]"
+                }
+              >
+                <Home className="mx-auto mb-2 h-5 w-5" />
+                Home
+              </button>
 
-                <TabsTrigger
-                  value="work"
-                  className="rounded-[12px] text-sm font-semibold data-[state=active]:bg-[#E8F7F4] data-[state=active]:text-[#008C78]"
-                >
-                  Work
-                </TabsTrigger>
+              <button
+                type="button"
+                disabled={isEditing || isWorkDisabled}
+                onClick={() => {
+                  onDraftChange({
+                    ...draft,
+                    place_type: "work",
+                    label: draft.label || "Work",
+                  });
+                }}
+                className={
+                  draft.place_type === "work"
+                    ? "rounded-[16px] border border-[#008C78] bg-[#E8F7F4] p-3 text-center text-sm font-semibold text-[#008C78]"
+                    : isEditing || isWorkDisabled
+                      ? "rounded-[16px] border border-[#E1E5EA] bg-[#F7F8FA] p-3 text-center text-sm font-semibold text-[#8A9099]"
+                      : "rounded-[16px] border border-[#E1E5EA] bg-white p-3 text-center text-sm font-semibold text-[#4B5563]"
+                }
+              >
+                <BriefcaseBusiness className="mx-auto mb-2 h-5 w-5" />
+                Work
+              </button>
 
-                <TabsTrigger
-                  value="favorite"
-                  className="rounded-[12px] text-sm font-semibold data-[state=active]:bg-[#E8F7F4] data-[state=active]:text-[#008C78]"
-                >
-                  Favorite
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
+              <button
+                type="button"
+                disabled={isEditing}
+                onClick={() => updateField("place_type", "favorite")}
+                className={
+                  draft.place_type === "favorite"
+                    ? "rounded-[16px] border border-[#008C78] bg-[#E8F7F4] p-3 text-center text-sm font-semibold text-[#008C78]"
+                    : isEditing
+                      ? "rounded-[16px] border border-[#E1E5EA] bg-[#F7F8FA] p-3 text-center text-sm font-semibold text-[#8A9099]"
+                    : "rounded-[16px] border border-[#E1E5EA] bg-white p-3 text-center text-sm font-semibold text-[#4B5563]"
+                }
+              >
+                <Heart className="mx-auto mb-2 h-5 w-5" />
+                Favorite
+              </button>
+            </div>
+
+            {isEditing ? (
+              <p className="mt-2 text-xs leading-5 text-[#8A9099]">
+                Place type is fixed after saving.
+              </p>
+            ) : (isHomeDisabled || isWorkDisabled) ? (
+              <p className="mt-2 text-xs leading-5 text-[#8A9099]">
+                Home and Work can only be saved once. Edit the existing one to
+                change it.
+              </p>
+            ) : null}
           </div>
 
           <div>
             <p className="mb-2 text-sm font-semibold text-[#101820]">Label</p>
             <div className="flex h-14 items-center gap-3 rounded-[14px] border border-[#E1E5EA] bg-white px-4 focus-within:border-[#008C78] focus-within:ring-4 focus-within:ring-[#008C78]/10">
-              <MapPin className="h-5 w-5 text-[#7A8088]" />
+              <Star className="h-5 w-5 text-[#7A8088]" />
               <Input
                 value={draft.label}
                 onChange={(event) => updateField("label", event.target.value)}
@@ -349,62 +831,162 @@ function SavedPlaceSheet({
                 className="h-auto border-0 p-0 text-base text-[#101820] shadow-none placeholder:text-[#8A9099] focus-visible:ring-0"
               />
             </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {["Home", "Work", "Gym", "University", "Airport"].map((label) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => updateField("label", label)}
+                  className="rounded-full border border-[#E1E5EA] bg-white px-3 py-2 text-xs font-semibold text-[#4B5563]"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div>
             <p className="mb-2 text-sm font-semibold text-[#101820]">
-              Address
+              Search address
             </p>
-            <div className="flex h-14 items-center gap-3 rounded-[14px] border border-[#E1E5EA] bg-white px-4 focus-within:border-[#008C78] focus-within:ring-4 focus-within:ring-[#008C78]/10">
+
+            <div className="flex h-[52px] items-center gap-3 rounded-[16px] border border-[#E1E5EA] bg-white px-4 focus-within:border-[#008C78] focus-within:ring-4 focus-within:ring-[#008C78]/10">
               <Search className="h-5 w-5 text-[#7A8088]" />
               <Input
-                value={draft.address}
-                onChange={(event) => updateField("address", event.target.value)}
-                placeholder="Search or type address"
+                value={addressQuery}
+                onChange={(event) => setAddressQuery(event.target.value)}
+                placeholder="Search location"
                 className="h-auto border-0 p-0 text-base text-[#101820] shadow-none placeholder:text-[#8A9099] focus-visible:ring-0"
               />
+              {addressQuery ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddressQuery("");
+                    updateField("address", "");
+                  }}
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-[#7A8088]"
+                  aria-label="Clear address"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
+
+            <div className="mt-3 space-y-2">
+              {autocompleteQuery.isLoading ? (
+                <Card className="rounded-[18px] border-[#E1E5EA] bg-white p-3 text-sm font-semibold text-[#4B5563] shadow-sm">
+                  Searching addresses...
+                </Card>
+              ) : null}
+
+              {autocompleteQuery.isError ? (
+                <p className="text-sm font-medium text-[#DC2626]">
+                  Could not load address suggestions.
+                </p>
+              ) : null}
+
+              {filteredSuggestions.slice(0, 4).map((suggestion, index) => {
+                const normalizedSuggestion = normalizeLocation(suggestion);
+                const title =
+                  suggestion.label ||
+                  suggestion.name ||
+                  normalizedSuggestion?.address ||
+                  "Location";
+                const subtitle =
+                  suggestion.address || normalizedSuggestion?.address || "";
+                const selectedId =
+                  normalizedSuggestion?.provider_place_id ||
+                  suggestion.provider_place_id ||
+                  suggestion.id;
+
+                return (
+                <button
+                  key={selectedId || subtitle || index}
+                  type="button"
+                  onClick={() => selectSuggestion(suggestion)}
+                  className={
+                    draft.provider_place_id === selectedId
+                      ? "flex w-full items-center gap-3 rounded-[18px] border border-[#008C78] bg-[#E8F7F4] p-3 text-left"
+                      : "flex w-full items-center gap-3 rounded-[18px] border border-[#E1E5EA] bg-white p-3 text-left"
+                  }
+                >
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F1FBF9]">
+                    <MapPin className="h-5 w-5 text-[#008C78]" />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold text-[#101820]">
+                      {title}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-[#4B5563]">
+                      {subtitle}
+                    </p>
+                  </div>
+
+                  {draft.provider_place_id === selectedId ? (
+                    <CheckCircle2 className="h-5 w-5 text-[#008C78]" />
+                  ) : null}
+                </button>
+              );
+              })}
+
+              {addressQuery.trim().length >= 2 &&
+              !autocompleteQuery.isLoading &&
+              !filteredSuggestions.length ? (
+                <p className="text-sm text-[#8A9099]">No suggestions found.</p>
+              ) : null}
             </div>
           </div>
 
-          <Card className="overflow-hidden rounded-[22px] border-[#E1E5EA] bg-[#EAF2F0] p-0 shadow-sm">
-            <div className="relative h-[150px]">
-              <div className="absolute inset-0 opacity-70">
-                <div className="absolute left-[-20%] top-7 h-20 w-[140%] rotate-[-12deg] rounded-full border-[12px] border-white/80" />
-                <div className="absolute left-[-10%] top-20 h-16 w-[120%] rotate-[18deg] rounded-full border-[10px] border-white/70" />
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-sm font-semibold text-[#101820]">
+                Pin preview
+              </p>
+
+              <button
+                type="button"
+                onClick={nudgePin}
+                disabled={reverseGeocodeMutation.isPending}
+                className="text-sm font-semibold text-[#008C78]"
+              >
+                {reverseGeocodeMutation.isPending ? "Adjusting..." : "Adjust pin"}
+              </button>
+            </div>
+
+            <MiniMapPreview place={draft} />
+
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div className="rounded-[16px] bg-[#F7F8FA] p-3">
+                <p className="text-xs text-[#8A9099]">Latitude</p>
+                <p className="mt-1 text-sm font-bold text-[#101820]">
+                  {Number(draft.latitude || 0).toFixed(5)}
+                </p>
               </div>
 
-              <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-full">
-                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#008C78] text-white shadow-card">
-                  <MapPin className="h-6 w-6" />
-                </div>
-                <div className="mx-auto mt-1 h-2 w-2 rounded-full bg-[#008C78]" />
-              </div>
-
-              <div className="absolute bottom-3 left-3 right-3 rounded-[16px] border border-white/70 bg-white/95 p-3 shadow-soft">
-                <p className="truncate text-sm font-semibold text-[#101820]">
-                  {draft.address || "Selected location preview"}
+              <div className="rounded-[16px] bg-[#F7F8FA] p-3">
+                <p className="text-xs text-[#8A9099]">Longitude</p>
+                <p className="mt-1 text-sm font-bold text-[#101820]">
+                  {Number(draft.longitude || 0).toFixed(5)}
                 </p>
               </div>
             </div>
-          </Card>
-
-          <div>
-            <p className="mb-2 text-sm font-semibold text-[#101820]">Note</p>
-            <Textarea
-              value={draft.note}
-              onChange={(event) => updateField("note", event.target.value)}
-              placeholder="Gate number, landmark, pickup hint..."
-              className="min-h-[90px] rounded-[16px] border-[#E1E5EA] text-base focus-visible:ring-[#008C78]/20"
-            />
           </div>
 
           <Button
             type="button"
             onClick={onSave}
+            disabled={isSaving}
             className="h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60]"
           >
             <CheckCircle2 className="mr-2 h-5 w-5" />
-            {isEditing ? "Save changes" : "Save place"}
+            {isSaving
+              ? "Saving..."
+              : isEditing
+                ? "Save changes"
+                : "Save place"}
           </Button>
         </div>
       </SheetContent>
@@ -415,22 +997,34 @@ function SavedPlaceSheet({
 export default function RiderSavedPlacesPage() {
   const navigate = useNavigate();
 
-  const [places, setPlaces] = useState(initialSavedPlaces);
+  const savedPlacesQuery = useSavedPlaces();
+  const createPlaceMutation = useCreateSavedPlace();
+  const updatePlaceMutation = useUpdateSavedPlace();
+  const deletePlaceMutation = useDeleteSavedPlace();
+
   const [activeTab, setActiveTab] = useState("all");
   const [searchText, setSearchText] = useState("");
-  const [sheetOpen, setSheetOpen] = useState(false);
+
+  const [editorOpen, setEditorOpen] = useState(false);
   const [draft, setDraft] = useState(emptyDraft);
+
+  const [detailsPlace, setDetailsPlace] = useState(null);
+  const [usePlace, setUsePlace] = useState(null);
   const [placeToDelete, setPlaceToDelete] = useState(null);
+
+  const places = useMemo(() => {
+    return (savedPlacesQuery.data || []).map(normalizeSavedPlaceForUi);
+  }, [savedPlacesQuery.data]);
 
   const filteredPlaces = useMemo(() => {
     return places.filter((place) => {
       const matchesTab = activeTab === "all" || place.place_type === activeTab;
 
-      const searchableText = [
+      const searchPool = [
         place.label,
         place.address,
-        place.note,
         place.place_type,
+        place.provider_place_id,
       ]
         .filter(Boolean)
         .join(" ")
@@ -438,62 +1032,74 @@ export default function RiderSavedPlacesPage() {
 
       const matchesSearch =
         !searchText.trim() ||
-        searchableText.includes(searchText.trim().toLowerCase());
+        searchPool.includes(searchText.trim().toLowerCase());
 
       return matchesTab && matchesSearch;
     });
   }, [places, activeTab, searchText]);
 
   function openAddSheet() {
-    setDraft(emptyDraft);
-    setSheetOpen(true);
+    setDraft({
+      ...emptyDraft,
+      id: null,
+    });
+    setEditorOpen(true);
   }
 
   function openEditSheet(place) {
+    setDetailsPlace(null);
     setDraft(place);
-    setSheetOpen(true);
+    setEditorOpen(true);
   }
 
-  function saveDraft() {
-    const safeLabel = draft.label.trim() || "Saved place";
-    const safeAddress = draft.address.trim() || "Lahore, Pakistan";
+  async function saveDraft() {
+    const payload = buildSavedPlacePayload(draft);
 
-    if (draft.id) {
-      setPlaces((current) =>
-        current.map((place) =>
-          place.id === draft.id
-            ? {
-                ...draft,
-                label: safeLabel,
-                address: safeAddress,
-              }
-            : place
-        )
-      );
-    } else {
-      setPlaces((current) => [
-        {
-          ...draft,
-          id: `saved_place_${Date.now()}`,
-          label: safeLabel,
-          address: safeAddress,
-        },
-        ...current,
-      ]);
+    try {
+      if (draft.id) {
+        const { place_type, ...updatePayload } = payload;
+        await updatePlaceMutation.mutateAsync({
+          saved_place_id: draft.id,
+          ...updatePayload,
+        });
+        toast.success("Saved place updated");
+      } else {
+        await createPlaceMutation.mutateAsync(payload);
+        toast.success("Saved place added");
+      }
+
+      setEditorOpen(false);
+      setDraft(emptyDraft);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error));
     }
-
-    setSheetOpen(false);
-    setDraft(emptyDraft);
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!placeToDelete) return;
 
-    setPlaces((current) =>
-      current.filter((place) => place.id !== placeToDelete.id)
-    );
+    try {
+      await deletePlaceMutation.mutateAsync(placeToDelete.id);
+      toast.success("Saved place deleted");
+      setPlaceToDelete(null);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error));
+    }
+  }
 
-    setPlaceToDelete(null);
+  function startBooking(place, mode) {
+    setUsePlace(null);
+
+    navigate("/rider/home", {
+      state: {
+        saved_place: place,
+        use_as: mode,
+      },
+    });
+  }
+
+  function handleUsePlace(place) {
+    setUsePlace(place);
   }
 
   return (
@@ -526,94 +1132,126 @@ export default function RiderSavedPlacesPage() {
         </header>
 
         <div className="mt-8 space-y-4">
-          <SavedPlacesHero places={places} />
+          {savedPlacesQuery.isLoading ? (
+            <LoadingState label="Loading saved places..." />
+          ) : null}
 
-          <div className="flex h-14 items-center gap-3 rounded-[14px] border border-[#E1E5EA] bg-white px-4 focus-within:border-[#008C78] focus-within:ring-4 focus-within:ring-[#008C78]/10">
-            <Search className="h-5 w-5 text-[#7A8088]" />
+          {savedPlacesQuery.isError ? (
+            <ErrorState message={getApiErrorMessage(savedPlacesQuery.error)} />
+          ) : null}
 
-            <Input
-              value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
-              placeholder="Search saved places"
-              className="h-auto border-0 p-0 text-base text-[#101820] shadow-none placeholder:text-[#8A9099] focus-visible:ring-0"
-            />
+          {!savedPlacesQuery.isLoading && !savedPlacesQuery.isError ? (
+            <>
+              <SavedPlacesHero places={places} />
 
-            {searchText ? (
+              <div className="flex h-[52px] items-center gap-3 rounded-[16px] border border-[#E1E5EA] bg-white px-4 focus-within:border-[#008C78] focus-within:ring-4 focus-within:ring-[#008C78]/10">
+                <Search className="h-5 w-5 text-[#7A8088]" />
+                <Input
+                  value={searchText}
+                  onChange={(event) => setSearchText(event.target.value)}
+                  placeholder="Search saved places"
+                  className="h-auto border-0 p-0 text-base text-[#101820] shadow-none placeholder:text-[#8A9099] focus-visible:ring-0"
+                />
+                {searchText ? (
+                  <button
+                    type="button"
+                    onClick={() => setSearchText("")}
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-[#7A8088]"
+                    aria-label="Clear search"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <TabsList className="grid h-12 w-full grid-cols-4 rounded-[16px] bg-[#F7F8FA] p-1">
+                  <TabsTrigger
+                    value="all"
+                    className="rounded-[12px] text-xs font-semibold data-[state=active]:bg-[#E8F7F4] data-[state=active]:text-[#008C78]"
+                  >
+                    All
+                  </TabsTrigger>
+
+                  <TabsTrigger
+                    value="home"
+                    className="rounded-[12px] text-xs font-semibold data-[state=active]:bg-[#E8F7F4] data-[state=active]:text-[#008C78]"
+                  >
+                    Home
+                  </TabsTrigger>
+
+                  <TabsTrigger
+                    value="work"
+                    className="rounded-[12px] text-xs font-semibold data-[state=active]:bg-[#E8F7F4] data-[state=active]:text-[#008C78]"
+                  >
+                    Work
+                  </TabsTrigger>
+
+                  <TabsTrigger
+                    value="favorite"
+                    className="rounded-[12px] text-xs font-semibold data-[state=active]:bg-[#E8F7F4] data-[state=active]:text-[#008C78]"
+                  >
+                    Favorite
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+
+              <div className="space-y-4">
+                {filteredPlaces.length ? (
+                  filteredPlaces.map((place) => (
+                    <SavedPlaceCard
+                      key={place.id}
+                      place={place}
+                      onUse={handleUsePlace}
+                      onDetails={setDetailsPlace}
+                      onEdit={openEditSheet}
+                      onDelete={setPlaceToDelete}
+                    />
+                  ))
+                ) : (
+                  <EmptySavedPlaces onAdd={openAddSheet} />
+                )}
+              </div>
+
               <Button
                 type="button"
-                size="icon"
-                variant="ghost"
-                onClick={() => setSearchText("")}
-                className="h-8 w-8 rounded-full text-[#7A8088]"
+                onClick={openAddSheet}
+                className="h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60]"
               >
-                <X className="h-4 w-4" />
+                <Plus className="mr-2 h-5 w-5" />
+                Add saved place
               </Button>
-            ) : null}
-          </div>
-
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid h-12 w-full grid-cols-4 rounded-[16px] bg-[#F7F8FA] p-1">
-              <TabsTrigger
-                value="all"
-                className="rounded-[12px] text-xs font-semibold data-[state=active]:bg-[#E8F7F4] data-[state=active]:text-[#008C78]"
-              >
-                All
-              </TabsTrigger>
-
-              <TabsTrigger
-                value="home"
-                className="rounded-[12px] text-xs font-semibold data-[state=active]:bg-[#E8F7F4] data-[state=active]:text-[#008C78]"
-              >
-                Home
-              </TabsTrigger>
-
-              <TabsTrigger
-                value="work"
-                className="rounded-[12px] text-xs font-semibold data-[state=active]:bg-[#E8F7F4] data-[state=active]:text-[#008C78]"
-              >
-                Work
-              </TabsTrigger>
-
-              <TabsTrigger
-                value="favorite"
-                className="rounded-[12px] text-xs font-semibold data-[state=active]:bg-[#E8F7F4] data-[state=active]:text-[#008C78]"
-              >
-                Favorite
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-
-          <div className="space-y-4">
-            {filteredPlaces.length ? (
-              filteredPlaces.map((place) => (
-                <SavedPlaceCard
-                  key={place.id}
-                  place={place}
-                  onEdit={openEditSheet}
-                  onDelete={setPlaceToDelete}
-                />
-              ))
-            ) : (
-              <EmptySavedPlaces onAdd={openAddSheet} />
-            )}
-          </div>
-
-          <Button
-            type="button"
-            onClick={openAddSheet}
-            className="h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60]"
-          >
-            <Plus className="mr-2 h-5 w-5" />
-            Add new place
-          </Button>
+            </>
+          ) : null}
         </div>
 
-        <SavedPlaceSheet
-          open={sheetOpen}
+        <PlaceEditorSheet
+          open={editorOpen}
           draft={draft}
-          onOpenChange={setSheetOpen}
+          existingPlaces={places}
+          onOpenChange={setEditorOpen}
           onDraftChange={setDraft}
           onSave={saveDraft}
+          isSaving={createPlaceMutation.isPending || updatePlaceMutation.isPending}
+        />
+
+        <PlaceDetailsSheet
+          place={detailsPlace}
+          open={Boolean(detailsPlace)}
+          onOpenChange={(open) => {
+            if (!open) setDetailsPlace(null);
+          }}
+          onUse={handleUsePlace}
+          onEdit={openEditSheet}
+        />
+
+        <UsePlaceSheet
+          place={usePlace}
+          open={Boolean(usePlace)}
+          onOpenChange={(open) => {
+            if (!open) setUsePlace(null);
+          }}
+          onStartBooking={startBooking}
         />
 
         <AlertDialog
@@ -633,7 +1271,7 @@ export default function RiderSavedPlacesPage() {
                 <span className="font-semibold text-[#101820]">
                   {placeToDelete?.label}
                 </span>{" "}
-                from your saved shortcuts. This is UI-only for now.
+                from your saved shortcuts.
               </AlertDialogDescription>
             </AlertDialogHeader>
 
@@ -644,9 +1282,10 @@ export default function RiderSavedPlacesPage() {
 
               <AlertDialogAction
                 onClick={confirmDelete}
+                disabled={deletePlaceMutation.isPending}
                 className="h-12 rounded-[14px] bg-[#DC2626] text-base font-semibold text-white hover:bg-[#B91C1C]"
               >
-                Delete
+                {deletePlaceMutation.isPending ? "Deleting..." : "Delete"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -13,7 +13,11 @@ import {
   UploadCloud,
   XCircle,
 } from "lucide-react";
+import { toast } from "sonner";
 
+import { ErrorState } from "@/common/ErrorState";
+import { LoadingState } from "@/common/LoadingState";
+import { getApiErrorMessage } from "@/api/client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,61 +32,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-
-const initialDocuments = [
-  {
-    id: "document_001",
-    document_type: "cnic",
-    title: "CNIC",
-    description: "National identity card front/back image or PDF.",
-    status: "approved",
-    file_name: "cnic_front_back.pdf",
-    file_url: "#",
-    uploaded_at: "May 26, 2026",
-    verified_at: "May 27, 2026",
-    rejection_reason: null,
-    vehicle_id: null,
-  },
-  {
-    id: "document_002",
-    document_type: "license",
-    title: "Driving License",
-    description: "Valid driving license image or PDF.",
-    status: "pending",
-    file_name: "driving_license.jpg",
-    file_url: "#",
-    uploaded_at: "May 27, 2026",
-    verified_at: null,
-    rejection_reason: null,
-    vehicle_id: null,
-  },
-  {
-    id: "document_003",
-    document_type: "vehicle_registration",
-    title: "Vehicle Registration",
-    description: "Registration document for your active vehicle.",
-    status: "rejected",
-    file_name: "vehicle_registration_old.pdf",
-    file_url: "#",
-    uploaded_at: "May 25, 2026",
-    verified_at: null,
-    rejection_reason: "Image is blurry. Please upload a clearer document.",
-    vehicle_id: "vehicle_001",
-  },
-];
-
-const demoVehicles = [
-  {
-    id: "vehicle_001",
-    label: "White Toyota Corolla",
-    plate_number: "LEA-1234",
-  },
-  {
-    id: "vehicle_002",
-    label: "Silver Honda City",
-    plate_number: "LEB-7788",
-  },
-];
+import {
+  useDriverDocuments,
+  useUploadDriverDocument,
+} from "@/hooks/driver/useDriverDocuments";
+import { useDriverVehicles } from "@/hooks/driver/useDriverVehicles";
 
 const documentTypes = [
   {
@@ -104,6 +58,22 @@ const documentTypes = [
     icon: Car,
   },
 ];
+
+const identityDocumentTypes = documentTypes.filter(
+  (document) => document.document_type !== "vehicle_registration"
+);
+
+function getDocumentTimestamp(document) {
+  const timestamp = document?.uploaded_at || document?.updated_at || "";
+  const value = Date.parse(timestamp);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function getLatestDocument(documents, predicate) {
+  return documents
+    .filter(predicate)
+    .sort((a, b) => getDocumentTimestamp(b) - getDocumentTimestamp(a))[0];
+}
 
 function getStatusConfig(status) {
   if (status === "approved") {
@@ -149,11 +119,33 @@ function getDocumentMeta(documentType) {
   return documentTypes.find((item) => item.document_type === documentType);
 }
 
-function DocumentsHero({ documents }) {
-  const approvedCount = documents.filter(
-    (document) => document.status === "approved"
+function toDocumentView(document) {
+  const meta = getDocumentMeta(document.document_type);
+  const fileName = document.file_name || document.file_url?.split("/").pop();
+
+  return {
+    title: meta?.title || document.document_type,
+    description: meta?.description || "",
+    file_name: fileName,
+    ...document,
+  };
+}
+
+function toVehicleOption(vehicle) {
+  return {
+    id: vehicle.id,
+    label: `${vehicle.color || ""} ${vehicle.make || ""} ${vehicle.model || ""}`
+      .replace(/\s+/g, " ")
+      .trim() || "Vehicle",
+    plate_number: vehicle.plate_number,
+  };
+}
+
+function DocumentsHero({ cards }) {
+  const approvedCount = cards.filter(
+    (item) => item.document?.status === "approved"
   ).length;
-  const totalCount = documentTypes.length;
+  const totalCount = Math.max(cards.length, 1);
   const progress = Math.round((approvedCount / totalCount) * 100);
 
   return (
@@ -197,7 +189,7 @@ function DocumentsHero({ documents }) {
   );
 }
 
-function DocumentCard({ document, onUpload }) {
+function DocumentCard({ document, vehicle, onUpload }) {
   const meta = getDocumentMeta(document.document_type);
   const Icon = meta?.icon || FileText;
   const statusConfig = getStatusConfig(document.status);
@@ -218,7 +210,9 @@ function DocumentCard({ document, onUpload }) {
               </h2>
 
               <p className="mt-1 text-sm leading-5 text-[#4B5563]">
-                {meta?.description || document.description}
+                {vehicle
+                  ? `${vehicle.label} · Plate ${vehicle.plate_number}`
+                  : meta?.description || document.description}
               </p>
             </div>
 
@@ -270,7 +264,7 @@ function DocumentCard({ document, onUpload }) {
 
           <Button
             type="button"
-            onClick={() => onUpload(document.document_type)}
+            onClick={() => onUpload(document.document_type, document.vehicle_id)}
             className={
               document.status === "approved"
                 ? "mt-4 h-[48px] w-full rounded-[14px] border border-[#E1E5EA] bg-white text-sm font-semibold text-[#101820] hover:bg-[#F7F8FA]"
@@ -287,9 +281,10 @@ function DocumentCard({ document, onUpload }) {
   );
 }
 
-function MissingDocumentCard({ documentType, onUpload }) {
+function MissingDocumentCard({ documentType, vehicle, onUpload, onAddVehicle }) {
   const meta = getDocumentMeta(documentType);
   const Icon = meta?.icon || FileText;
+  const isVehicleRegistration = documentType === "vehicle_registration";
 
   return (
     <Card className="rounded-[24px] border-dashed border-[#CED4DA] bg-white p-4 shadow-sm">
@@ -302,10 +297,14 @@ function MissingDocumentCard({ documentType, onUpload }) {
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="text-base font-bold text-[#101820]">
-                {meta.title}
+                {isVehicleRegistration && vehicle
+                  ? `${vehicle.label} registration`
+                  : meta.title}
               </h2>
               <p className="mt-1 text-sm leading-5 text-[#4B5563]">
-                {meta.description}
+                {isVehicleRegistration && vehicle
+                  ? `Required for plate ${vehicle.plate_number}.`
+                  : meta.description}
               </p>
             </div>
 
@@ -316,11 +315,17 @@ function MissingDocumentCard({ documentType, onUpload }) {
 
           <Button
             type="button"
-            onClick={() => onUpload(documentType)}
+            onClick={() =>
+              isVehicleRegistration && !vehicle
+                ? onAddVehicle?.()
+                : onUpload(documentType, vehicle?.id)
+            }
             className="mt-4 h-[48px] w-full rounded-[14px] bg-[#008C78] text-sm font-semibold text-white hover:bg-[#006F60]"
           >
             <UploadCloud className="mr-2 h-4 w-4" />
-            Upload {meta.title}
+            {isVehicleRegistration && !vehicle
+              ? "Add vehicle first"
+              : `Upload ${meta.title}`}
           </Button>
         </div>
       </div>
@@ -331,7 +336,8 @@ function MissingDocumentCard({ documentType, onUpload }) {
 function UploadDocumentSheet({
   open,
   documentType,
-  selectedFileName,
+  selectedFile,
+  vehicles,
   selectedVehicleId,
   note,
   onOpenChange,
@@ -339,11 +345,13 @@ function UploadDocumentSheet({
   onVehicleChange,
   onNoteChange,
   onSave,
+  isUploading,
 }) {
   const fileInputRef = useRef(null);
   const meta = getDocumentMeta(documentType);
   const Icon = meta?.icon || FileText;
   const requiresVehicle = documentType === "vehicle_registration";
+  const selectedFileName = selectedFile?.name || "";
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -359,7 +367,7 @@ function UploadDocumentSheet({
           </SheetTitle>
 
           <SheetDescription className="text-base leading-6 text-[#4B5563]">
-            UI-only upload form. API wiring will use multipart form data later.
+            Upload a clear image or PDF for review.
           </SheetDescription>
         </SheetHeader>
 
@@ -388,7 +396,7 @@ function UploadDocumentSheet({
               </p>
 
               <div className="space-y-2">
-                {demoVehicles.map((vehicle) => {
+                {vehicles.map((vehicle) => {
                   const isSelected = vehicle.id === selectedVehicleId;
 
                   return (
@@ -421,6 +429,12 @@ function UploadDocumentSheet({
                     </button>
                   );
                 })}
+
+                {!vehicles.length ? (
+                  <p className="rounded-[16px] bg-[#F7F8FA] p-3 text-sm text-[#4B5563]">
+                    Add a vehicle before uploading registration.
+                  </p>
+                ) : null}
               </div>
             </div>
           ) : null}
@@ -437,7 +451,7 @@ function UploadDocumentSheet({
               className="hidden"
               onChange={(event) => {
                 const file = event.target.files?.[0];
-                onFileChange(file?.name || "");
+                onFileChange(file || null);
               }}
             />
 
@@ -477,17 +491,18 @@ function UploadDocumentSheet({
             <AlertTriangle className="h-5 w-5 text-[#F59E0B]" />
             <AlertDescription className="text-sm leading-5 text-[#92400E]">
               Uploaded documents will show as pending until reviewed. This screen
-              is UI-only for now.
+              will send the file to the driver documents API.
             </AlertDescription>
           </Alert>
 
           <Button
             type="button"
             onClick={onSave}
+            disabled={isUploading}
             className="h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60]"
           >
             <UploadCloud className="mr-2 h-5 w-5" />
-            Save upload
+            {isUploading ? "Uploading..." : "Save upload"}
           </Button>
         </div>
       </SheetContent>
@@ -497,80 +512,140 @@ function UploadDocumentSheet({
 
 export default function DriverDocumentsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const [documents, setDocuments] = useState(initialDocuments);
+  const documentsQuery = useDriverDocuments();
+  const vehiclesQuery = useDriverVehicles();
+  const uploadDocumentMutation = useUploadDriverDocument();
+
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [activeDocumentType, setActiveDocumentType] = useState("cnic");
-  const [selectedFileName, setSelectedFileName] = useState("");
-  const [selectedVehicleId, setSelectedVehicleId] = useState("vehicle_001");
+  const [activeDocumentType, setActiveDocumentType] = useState(
+    location.state?.document_type || "cnic"
+  );
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedVehicleId, setSelectedVehicleId] = useState(
+    location.state?.vehicle_id || ""
+  );
   const [note, setNote] = useState("");
 
+  const documents = useMemo(
+    () => (documentsQuery.data || []).map(toDocumentView),
+    [documentsQuery.data]
+  );
+  const vehicleOptions = useMemo(
+    () => (vehiclesQuery.data || []).map(toVehicleOption),
+    [vehiclesQuery.data]
+  );
+
   const documentCards = useMemo(() => {
-    return documentTypes.map((type) => {
-      const existing = documents.find(
-        (document) => document.document_type === type.document_type
+    const identityCards = identityDocumentTypes.map((type) => {
+      const existing = getLatestDocument(
+        documents,
+        (document) =>
+          document.document_type === type.document_type && !document.vehicle_id
       );
 
       return {
+        key: type.document_type,
         type,
         document: existing,
+        vehicle: null,
       };
     });
-  }, [documents]);
 
-  const approvedCount = documents.filter(
-    (document) => document.status === "approved"
+    const vehicleRegistrationCards = vehicleOptions.length
+      ? vehicleOptions.map((vehicle) => {
+          const existing = getLatestDocument(
+            documents,
+            (document) =>
+              document.document_type === "vehicle_registration" &&
+              document.vehicle_id === vehicle.id
+          );
+
+          return {
+            key: `vehicle_registration:${vehicle.id}`,
+            type: getDocumentMeta("vehicle_registration"),
+            document: existing,
+            vehicle,
+          };
+        })
+      : [
+          {
+            key: "vehicle_registration:missing_vehicle",
+            type: getDocumentMeta("vehicle_registration"),
+            document: null,
+            vehicle: null,
+          },
+        ];
+
+    return [...identityCards, ...vehicleRegistrationCards];
+  }, [documents, vehicleOptions]);
+
+  const approvedCount = documentCards.filter(
+    (item) => item.document?.status === "approved"
   ).length;
-  const pendingCount = documents.filter(
-    (document) => document.status === "pending"
+  const pendingCount = documentCards.filter(
+    (item) => item.document?.status === "pending"
   ).length;
-  const rejectedCount = documents.filter(
-    (document) => document.status === "rejected"
+  const rejectedCount = documentCards.filter(
+    (item) => item.document?.status === "rejected"
   ).length;
 
-  function openUpload(documentType) {
+  function openUpload(documentType, vehicleId) {
     setActiveDocumentType(documentType);
-    setSelectedFileName("");
-    setSelectedVehicleId("vehicle_001");
+    setSelectedFile(null);
+    setSelectedVehicleId(
+      vehicleId ||
+        (documentType === "vehicle_registration"
+          ? location.state?.vehicle_id || vehicleOptions[0]?.id || ""
+          : "")
+    );
     setNote("");
     setUploadOpen(true);
   }
 
-  function saveUploadUiOnly() {
-    const meta = getDocumentMeta(activeDocumentType);
+  useEffect(() => {
+    const documentType = location.state?.document_type;
+    const vehicleId = location.state?.vehicle_id;
 
-    setDocuments((current) => {
-      const existing = current.find(
-        (document) => document.document_type === activeDocumentType
-      );
+    if (!documentType || uploadOpen || vehiclesQuery.isLoading) return;
 
-      const nextDocument = {
-        id: existing?.id || `document_${Date.now()}`,
+    openUpload(documentType, vehicleId);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [
+    location.pathname,
+    location.state,
+    navigate,
+    uploadOpen,
+    vehicleOptions,
+    vehiclesQuery.isLoading,
+  ]);
+
+  async function saveUpload() {
+    if (!selectedFile) {
+      toast.error("Choose a document file first");
+      return;
+    }
+
+    if (activeDocumentType === "vehicle_registration" && !selectedVehicleId) {
+      toast.error("Select a vehicle first");
+      return;
+    }
+
+    try {
+      await uploadDocumentMutation.mutateAsync({
+        file: selectedFile,
         document_type: activeDocumentType,
-        title: meta?.title || "Document",
-        description: meta?.description || "",
-        status: "pending",
-        file_name: selectedFileName || `${activeDocumentType}_upload.pdf`,
-        file_url: "#",
-        uploaded_at: "Just now",
-        verified_at: null,
-        rejection_reason: null,
         vehicle_id:
           activeDocumentType === "vehicle_registration"
             ? selectedVehicleId
             : null,
-      };
-
-      if (existing) {
-        return current.map((document) =>
-          document.document_type === activeDocumentType ? nextDocument : document
-        );
-      }
-
-      return [nextDocument, ...current];
-    });
-
-    setUploadOpen(false);
+      });
+      toast.success("Document uploaded");
+      setUploadOpen(false);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error));
+    }
   }
 
   return (
@@ -598,9 +673,20 @@ export default function DriverDocumentsPage() {
         </header>
 
         <div className="mt-8 space-y-4">
-          <DocumentsHero documents={documents} />
+          {documentsQuery.isLoading || vehiclesQuery.isLoading ? (
+            <LoadingState label="Loading documents..." />
+          ) : documentsQuery.isError || vehiclesQuery.isError ? (
+            <ErrorState
+              message={
+                getApiErrorMessage(documentsQuery.error || vehiclesQuery.error) ||
+                "Could not load driver documents."
+              }
+            />
+          ) : (
+            <>
+              <DocumentsHero cards={documentCards} />
 
-          <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-3">
             <Card className="rounded-[18px] border-[#E1E5EA] bg-white p-3 text-center shadow-sm">
               <CheckCircle2 className="mx-auto h-5 w-5 text-[#008C78]" />
               <p className="mt-2 text-lg font-bold text-[#101820]">
@@ -624,37 +710,40 @@ export default function DriverDocumentsPage() {
               </p>
               <p className="text-xs text-[#8A9099]">Rejected</p>
             </Card>
-          </div>
+              </div>
 
-          <Alert className="rounded-[20px] border-[#E1E5EA] bg-[#F7F8FA] p-4">
+              <Alert className="rounded-[20px] border-[#E1E5EA] bg-[#F7F8FA] p-4">
             <FileText className="h-5 w-5 text-[#008C78]" />
             <AlertDescription className="text-sm leading-5 text-[#4B5563]">
               Upload clear images or PDFs. Vehicle registration should match the
               active vehicle selected in your vehicle profile.
             </AlertDescription>
-          </Alert>
+              </Alert>
 
-          <div className="space-y-4">
-            {documentCards.map(({ type, document }) =>
+              <div className="space-y-4">
+            {documentCards.map(({ key, type, document, vehicle }) =>
               document ? (
                 <DocumentCard
-                  key={type.document_type}
+                  key={key}
                   document={document}
+                  vehicle={vehicle}
                   onUpload={openUpload}
                 />
               ) : (
                 <MissingDocumentCard
-                  key={type.document_type}
+                  key={key}
                   documentType={type.document_type}
+                  vehicle={vehicle}
                   onUpload={openUpload}
+                  onAddVehicle={() => navigate("/driver/vehicles")}
                 />
               )
             )}
-          </div>
+              </div>
 
-          <Separator className="bg-[#E1E5EA]" />
+              <Separator className="bg-[#E1E5EA]" />
 
-          <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3">
             <Button
               type="button"
               variant="outline"
@@ -671,20 +760,24 @@ export default function DriverDocumentsPage() {
             >
               Upload
             </Button>
-          </div>
+              </div>
+            </>
+          )}
         </div>
 
         <UploadDocumentSheet
           open={uploadOpen}
           documentType={activeDocumentType}
-          selectedFileName={selectedFileName}
+          selectedFile={selectedFile}
+          vehicles={vehicleOptions}
           selectedVehicleId={selectedVehicleId}
           note={note}
           onOpenChange={setUploadOpen}
-          onFileChange={setSelectedFileName}
+          onFileChange={setSelectedFile}
           onVehicleChange={setSelectedVehicleId}
           onNoteChange={setNote}
-          onSave={saveUploadUiOnly}
+          onSave={saveUpload}
+          isUploading={uploadDocumentMutation.isPending}
         />
       </section>
     </main>

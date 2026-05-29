@@ -10,19 +10,15 @@ import {
   FileCheck2,
   Flame,
   Gauge,
-  LogOut,
   MapPin,
   Navigation,
   Phone,
   Route,
   ShieldCheck,
   Star,
-  Icon,
   Wallet,
   X,
 } from "lucide-react";
-import { steeringWheel } from "@lucide/lab";
-import { useQueryClient } from "@tanstack/react-query";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +34,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { MapboxMap } from "@/components/map/MapboxMap";
+import { HomeSidebar } from "@/components/navigation/HomeSidebar";
 import { ErrorState } from "@/common/ErrorState";
 import { LoadingState } from "@/common/LoadingState";
 import { getApiErrorMessage } from "@/api/client";
@@ -47,13 +44,12 @@ import {
   useDriverAvailability,
   useDriverLocation,
 } from "@/hooks/driver/useDriverActions";
+import { useDriverDocuments } from "@/hooks/driver/useDriverDocuments";
 import { useDriverOffers } from "@/hooks/driver/useDriverOffers";
 import { useDriverProfile } from "@/hooks/driver/useDriverProfile";
 import { useMapConfig } from "@/hooks/maps/useMapConfig";
 import { useSurgeZones } from "@/hooks/maps/useSurgeZones";
 import { useRideSocket } from "@/hooks/socket/useRideSocket";
-import { queryKeys } from "@/query/queryKeys";
-import { clearAccessToken } from "@/utils/tokenStorage";
 import { getDriverFromResponse } from "@/utils/apiShapes";
 
 const demoDriver = {
@@ -145,7 +141,7 @@ function getInitials(name = "Driver") {
     .join("");
 }
 
-function toDriverHomeView(driverData) {
+function toDriverHomeView(driverData, documents = demoDriver.documents) {
   const driver = getDriverFromResponse(driverData) || demoDriver;
   const user = driver.user || {};
   const name = user.name || driver.name || demoDriver.name;
@@ -155,8 +151,43 @@ function toDriverHomeView(driverData) {
     ...driver,
     name,
     initials: getInitials(name),
-    active_vehicle: driver.active_vehicle || demoDriver.active_vehicle,
-    documents: demoDriver.documents,
+    active_vehicle: driver.active_vehicle || null,
+    documents,
+  };
+}
+
+function getDocumentTimestamp(document) {
+  const timestamp = document?.uploaded_at || document?.updated_at || "";
+  const value = Date.parse(timestamp);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function getLatestDocument(documents = [], predicate) {
+  return documents
+    .filter(predicate)
+    .sort((a, b) => getDocumentTimestamp(b) - getDocumentTimestamp(a))[0];
+}
+
+function toDocumentStatusMap(documents = [], activeVehicleId) {
+  const cnic = getLatestDocument(
+    documents,
+    (document) => document.document_type === "cnic" && !document.vehicle_id
+  );
+  const license = getLatestDocument(
+    documents,
+    (document) => document.document_type === "license" && !document.vehicle_id
+  );
+  const vehicleRegistration = getLatestDocument(
+    documents,
+    (document) =>
+      document.document_type === "vehicle_registration" &&
+      (!activeVehicleId || document.vehicle_id === activeVehicleId)
+  );
+
+  return {
+    cnic: cnic?.status || "missing",
+    license: license?.status || "missing",
+    vehicle_registration: vehicleRegistration?.status || "missing",
   };
 }
 
@@ -942,7 +973,6 @@ function IncomingOfferSheet({ open, offer, onOpenChange, onAccept, onDecline }) 
 
 export default function DriverHomePage() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
 
   const [offerOpen, setOfferOpen] = useState(false);
   const [socketOffer, setSocketOffer] = useState(null);
@@ -954,6 +984,7 @@ export default function DriverHomePage() {
     provider_place_id: "mock.driver_location",
   });
   const driverQuery = useDriverProfile();
+  const documentsQuery = useDriverDocuments();
   const offersQuery = useDriverOffers("sent");
   const mapConfigQuery = useMapConfig();
   const surgeZonesQuery = useSurgeZones("Lahore");
@@ -962,7 +993,12 @@ export default function DriverHomePage() {
   const acceptOfferMutation = useAcceptRideOffer();
   const declineOfferMutation = useDeclineRideOffer();
 
-  const driver = toDriverHomeView(driverQuery.data);
+  const driverProfileView = toDriverHomeView(driverQuery.data);
+  const documentStatusMap = toDocumentStatusMap(
+    documentsQuery.data || [],
+    driverProfileView.active_vehicle?.id
+  );
+  const driver = toDriverHomeView(driverQuery.data, documentStatusMap);
   const pendingOffer = socketOffer || offersQuery.data?.[0] || null;
   const offer = toOfferView(pendingOffer);
   const surgeZones = toDemandZones(surgeZonesQuery.data || demoSurgeZones);
@@ -1034,13 +1070,6 @@ export default function DriverHomePage() {
     } catch (error) {
       window.alert(getApiErrorMessage(error));
     }
-  }
-
-  function handleLogout() {
-    clearAccessToken();
-    queryClient.removeQueries({ queryKey: queryKeys.me });
-    queryClient.removeQueries({ queryKey: queryKeys.driverProfile });
-    navigate("/auth/login", { replace: true });
   }
 
   async function handleAcceptOffer() {
@@ -1123,66 +1152,35 @@ export default function DriverHomePage() {
           />
 
           <header className="absolute left-0 right-0 top-0 z-40 px-5 pt-6">
-            <div className="flex items-center justify-between">
-              <div className="rounded-[22px] border border-white/70 bg-white/95 p-3 shadow-soft backdrop-blur">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-[#E8F7F4]">
-                    <Icon
-                                iconNode={steeringWheel}
-                                className="h-4 w-4"
-                            />
-                  </div>
+            <div className="flex items-start justify-between gap-3">
+              <HomeSidebar
+                role="driver"
+                profile={{
+                  name: driver.name,
+                  email: driver.user?.email,
+                  phone: driver.user?.phone,
+                  initials: driver.initials,
+                  profile_photo_url: driver.user?.profile_photo_url || null,
+                  rating: driver.average_rating,
+                }}
+              />
 
-                  <div>
-                    <p className="text-xs font-semibold text-[#008C78]">
-                      Driver mode
-                    </p>
-                    <p className="max-w-[170px] truncate text-sm font-bold text-[#101820]">
-                      {driver.name}
-                    </p>
-                  </div>
-                </div>
+              <div className="flex max-w-[calc(100%-56px)] flex-wrap justify-end gap-2">
+                <Badge className="rounded-full bg-white px-3 py-1.5 text-[#101820] shadow-soft hover:bg-white">
+                  <Star className="mr-1 h-3.5 w-3.5 fill-[#F59E0B] text-[#F59E0B]" />
+                  {driver.average_rating} rating
+                </Badge>
+
+                <Badge className="rounded-full bg-white px-3 py-1.5 text-[#101820] shadow-soft hover:bg-white">
+                  <BarChart3 className="mr-1 h-3.5 w-3.5 text-[#008C78]" />
+                  {demoStats.today_rides} rides today
+                </Badge>
+
+                <Badge className="rounded-full bg-[#FFF7ED] px-3 py-1.5 text-[#C2410C] shadow-soft hover:bg-[#FFF7ED]">
+                  <Flame className="mr-1 h-3.5 w-3.5" />
+                  Demand nearby
+                </Badge>
               </div>
-
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  className="h-11 w-11 rounded-full border-white/70 bg-white/95 text-[#101820] shadow-soft"
-                  aria-label="Notifications"
-                >
-                  <Bell className="h-5 w-5" />
-                </Button>
-
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  onClick={handleLogout}
-                  className="h-11 w-11 rounded-full border-white/70 bg-white/95 text-[#101820] shadow-soft"
-                  aria-label="Logout"
-                >
-                  <LogOut className="h-5 w-5" />
-                </Button>
-              </div>
-            </div>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Badge className="rounded-full bg-white px-3 py-1.5 text-[#101820] shadow-soft hover:bg-white">
-                <Star className="mr-1 h-3.5 w-3.5 fill-[#F59E0B] text-[#F59E0B]" />
-                {driver.average_rating} rating
-              </Badge>
-
-              <Badge className="rounded-full bg-white px-3 py-1.5 text-[#101820] shadow-soft hover:bg-white">
-                <BarChart3 className="mr-1 h-3.5 w-3.5 text-[#008C78]" />
-                {demoStats.today_rides} rides today
-              </Badge>
-
-              <Badge className="rounded-full bg-[#FFF7ED] px-3 py-1.5 text-[#C2410C] shadow-soft hover:bg-[#FFF7ED]">
-                <Flame className="mr-1 h-3.5 w-3.5" />
-                Demand nearby
-              </Badge>
             </div>
           </header>
         </div>
@@ -1212,10 +1210,12 @@ export default function DriverHomePage() {
               onDecline={handleDeclineOffer}
             />
 
-            <ActiveVehicleCard
-              vehicle={driver.active_vehicle}
-              onNavigate={() => navigate("/driver/vehicles")}
-            />
+            {driver.active_vehicle ? (
+              <ActiveVehicleCard
+                vehicle={driver.active_vehicle}
+                onNavigate={() => navigate("/driver/vehicles")}
+              />
+            ) : null}
 
             <DriverStatsGrid stats={demoStats} />
 
