@@ -8,22 +8,168 @@ export function isRealMapboxToken(token) {
   );
 }
 
-export function getRouteCoordinates(route) {
-  if (!route) return [];
+function isFiniteNumber(value) {
+  return Number.isFinite(Number(value));
+}
 
-  if (Array.isArray(route.coordinates)) {
-    return route.coordinates;
+function normalizeLngLatPair(pair) {
+  if (!Array.isArray(pair) || pair.length < 2) return null;
+
+  const first = Number(pair[0]);
+  const second = Number(pair[1]);
+
+  if (!Number.isFinite(first) || !Number.isFinite(second)) return null;
+
+  /**
+   * Mapbox needs [longitude, latitude].
+   *
+   * If the backend accidentally sends [latitude, longitude], this fixes it.
+   * Lahore example:
+   * - latitude is usually around 31
+   * - longitude is usually around 74
+   */
+  const firstLooksLikeLat = Math.abs(first) <= 90;
+  const secondLooksLikeLng = Math.abs(second) <= 180;
+  const firstLooksLikeLng = Math.abs(first) <= 180;
+  const secondLooksLikeLat = Math.abs(second) <= 90;
+
+  if (
+    firstLooksLikeLat &&
+    secondLooksLikeLng &&
+    Math.abs(first) < Math.abs(second)
+  ) {
+    return [second, first];
   }
 
-  if (Array.isArray(route.geometry?.coordinates)) {
-    return route.geometry.coordinates;
+  if (firstLooksLikeLng && secondLooksLikeLat) {
+    return [first, second];
   }
 
-  if (typeof route.polyline === "string" && route.polyline.trim()) {
-    return decodePolyline(route.polyline);
+  return [first, second];
+}
+
+function normalizeCoordinates(coordinates) {
+  if (!Array.isArray(coordinates)) return [];
+
+  return coordinates
+    .map(normalizeLngLatPair)
+    .filter(Boolean);
+}
+
+function readCoordinatesFromAnyShape(route) {
+  const candidates = [
+    route?.coordinates,
+    route?.geometry?.coordinates,
+    route?.route?.coordinates,
+    route?.route?.geometry?.coordinates,
+    route?.data?.coordinates,
+    route?.data?.geometry?.coordinates,
+    route?.data?.route?.coordinates,
+    route?.data?.route?.geometry?.coordinates,
+    route?.overview_polyline?.coordinates,
+    route?.polyline?.coordinates,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeCoordinates(candidate);
+
+    if (normalized.length >= 2) {
+      return normalized;
+    }
   }
 
   return [];
+}
+
+function readPolylineFromAnyShape(route) {
+  const candidates = [
+    route?.polyline,
+    route?.encoded_polyline,
+    route?.overview_polyline,
+    route?.geometry,
+    route?.route?.polyline,
+    route?.route?.encoded_polyline,
+    route?.route?.overview_polyline,
+    route?.route?.geometry,
+    route?.data?.polyline,
+    route?.data?.encoded_polyline,
+    route?.data?.overview_polyline,
+    route?.data?.geometry,
+    route?.data?.route?.polyline,
+    route?.data?.route?.encoded_polyline,
+    route?.data?.route?.overview_polyline,
+    route?.data?.route?.geometry,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate;
+    }
+
+    if (typeof candidate?.points === "string" && candidate.points.trim()) {
+      return candidate.points;
+    }
+
+    if (typeof candidate?.polyline === "string" && candidate.polyline.trim()) {
+      return candidate.polyline;
+    }
+  }
+
+  return null;
+}
+
+function readFallbackLineFromStops(route) {
+  const pickup =
+    route?.pickup ||
+    route?.origin ||
+    route?.start ||
+    route?.from ||
+    route?.route?.pickup ||
+    route?.route?.origin;
+
+  const dropoff =
+    route?.dropoff ||
+    route?.destination ||
+    route?.end ||
+    route?.to ||
+    route?.route?.dropoff ||
+    route?.route?.destination;
+
+  if (
+    isFiniteNumber(pickup?.latitude) &&
+    isFiniteNumber(pickup?.longitude) &&
+    isFiniteNumber(dropoff?.latitude) &&
+    isFiniteNumber(dropoff?.longitude)
+  ) {
+    return [
+      [Number(pickup.longitude), Number(pickup.latitude)],
+      [Number(dropoff.longitude), Number(dropoff.latitude)],
+    ];
+  }
+
+  return [];
+}
+
+export function getRouteCoordinates(route) {
+  if (!route) return [];
+
+  const directCoordinates = readCoordinatesFromAnyShape(route);
+
+  if (directCoordinates.length >= 2) {
+    return directCoordinates;
+  }
+
+  const encodedPolyline = readPolylineFromAnyShape(route);
+
+  if (encodedPolyline) {
+    const decoded = decodePolyline(encodedPolyline);
+
+    if (decoded.length >= 2) {
+      return decoded;
+    }
+  }
+
+  return readFallbackLineFromStops(route);
 }
 
 export function decodePolyline(encoded) {
@@ -41,7 +187,7 @@ export function decodePolyline(encoded) {
       byte = encoded.charCodeAt(index++) - 63;
       result |= (byte & 0x1f) << shift;
       shift += 5;
-    } while (byte >= 0x20);
+    } while (byte >= 0x20 && index < encoded.length);
 
     const deltaLat = result & 1 ? ~(result >> 1) : result >> 1;
     lat += deltaLat;
@@ -53,7 +199,7 @@ export function decodePolyline(encoded) {
       byte = encoded.charCodeAt(index++) - 63;
       result |= (byte & 0x1f) << shift;
       shift += 5;
-    } while (byte >= 0x20);
+    } while (byte >= 0x20 && index < encoded.length);
 
     const deltaLng = result & 1 ? ~(result >> 1) : result >> 1;
     lng += deltaLng;
@@ -61,7 +207,7 @@ export function decodePolyline(encoded) {
     coordinates.push([lng / 1e5, lat / 1e5]);
   }
 
-  return coordinates;
+  return normalizeCoordinates(coordinates);
 }
 
 export function makeDriverMarkerElement() {

@@ -7,6 +7,7 @@ import OtpVerificationPage from "@/pages/auth/OtpVerificationPage";
 import PlaceholderPage from "@/pages/PlaceholderPage";
 import { PublicOnlyRoute, RequireAuth } from "@/routes/AuthGuards";
 import RiderHomePage from "@/pages/rider/RiderHomePage";
+import RiderRideConfirmPage from "@/pages/rider/RiderRideConfirmPage";
 import RiderSearchingPage from "@/pages/rider/RiderSearchingPage";
 import RiderLiveRidePage from "./pages/rider/RiderLiveRidePage";
 import RiderReceiptPage from "./pages/rider/RiderReceiptPage";
@@ -50,6 +51,10 @@ export default function App() {
             <Route element={<RequireAuth allowedRoles={["rider"]} />}>
                 <Route path="/rider/home" element={<RiderHomePage />} />
                 <Route
+                    path="/rider/ride/confirm"
+                    element={<RiderRideConfirmPage />}
+                />
+                <Route
                     path="/rider/ride/:ride_id/searching"
                     element={<RiderSearchingPage />}
                 />
@@ -74,10 +79,7 @@ export default function App() {
                     element={<RiderRatingPage />}
                 />
                 <Route path="/rider/rides" element={<RiderRideHistoryPage />} />
-                <Route
-                    path="/rider/profile"
-                    element={<ProfilePage />}
-                />
+                <Route path="/rider/profile" element={<ProfilePage />} />
             </Route>
 
             <Route

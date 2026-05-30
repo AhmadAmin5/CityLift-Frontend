@@ -19,6 +19,10 @@ export function LocationSearchInput({
   savedPlaces = [],
   currentLocation,
   placeholder = "Search location",
+  showSearchIcon = true,
+  rightAction = null,
+  labelEnd = null,
+  isHighlighted = false,
 }) {
   const [q, setQ] = useState(value?.address || "");
   const [sessionToken, setSessionToken] = useState(null);
@@ -99,11 +103,22 @@ export function LocationSearchInput({
   return (
     <div>
       {label ? (
-        <p className="mb-2 text-sm font-semibold text-[#101820]">{label}</p>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <p className="text-sm font-semibold text-[#101820]">{label}</p>
+          {labelEnd}
+        </div>
       ) : null}
 
-      <div className="flex h-[52px] items-center gap-3 rounded-[16px] border border-[#E1E5EA] bg-white px-4 focus-within:border-[#008C78] focus-within:ring-4 focus-within:ring-[#008C78]/10">
-        <Search className="h-5 w-5 text-[#7A8088]" />
+      <div
+        className={
+          isHighlighted
+            ? "flex h-[52px] items-center gap-3 rounded-[16px] border border-[#008C78] bg-[#E8F7F4] px-4 ring-4 ring-[#008C78]/10"
+            : "flex h-[52px] items-center gap-3 rounded-[16px] border border-[#E1E5EA] bg-white px-4 focus-within:border-[#008C78] focus-within:ring-4 focus-within:ring-[#008C78]/10"
+        }
+      >
+        {showSearchIcon ? (
+          <Search className="h-5 w-5 shrink-0 text-[#7A8088]" />
+        ) : null}
 
         <Input
           value={q}
@@ -117,7 +132,7 @@ export function LocationSearchInput({
             setSuggestionsOpen(true);
           }}
           placeholder={placeholder}
-          className="h-auto border-0 p-0 text-base text-[#101820] shadow-none placeholder:text-[#8A9099] focus-visible:ring-0"
+          className="h-auto min-w-0 border-0 p-0 text-base text-[#101820] shadow-none placeholder:text-[#8A9099] focus-visible:ring-0"
         />
 
         {q ? (
@@ -129,11 +144,15 @@ export function LocationSearchInput({
               setSessionToken(createSessionToken());
               setSuggestionsOpen(false);
             }}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-[#7A8088]"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#7A8088]"
             aria-label="Clear location"
           >
             <X className="h-4 w-4" />
           </button>
+        ) : null}
+
+        {rightAction ? (
+          <div className="-mr-1 flex shrink-0 items-center">{rightAction}</div>
         ) : null}
       </div>
 
@@ -160,10 +179,15 @@ export function LocationSearchInput({
         <div className="mt-3 space-y-2">
           {suggestions.slice(0, 5).map((place, index) => {
             const title =
-              place.label || place.name || place.full_address || place.address || "Location";
+              place.label ||
+              place.name ||
+              place.full_address ||
+              place.address ||
+              "Location";
             const subtitle = place.full_address || place.address || "";
             const placeId = place.place_id || place.provider_place_id;
-            const isResolving = resolvingPlaceId && resolvingPlaceId === placeId;
+            const isResolving =
+              resolvingPlaceId && resolvingPlaceId === placeId;
 
             return (
               <button

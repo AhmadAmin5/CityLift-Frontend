@@ -14,10 +14,7 @@ import { useSavedPlaces } from "@/hooks/rider/useSavedPlaces";
 import { useMapConfig } from "@/hooks/maps/useMapConfig";
 import { useNearbyDrivers } from "@/hooks/maps/useNearbyDrivers";
 import { useSurgeZones } from "@/hooks/maps/useSurgeZones";
-import { useRoutePreview } from "@/hooks/maps/useRoutePreview";
 import { useReverseGeocode } from "@/hooks/maps/useReverseGeocode";
-import { useRideEstimate } from "@/hooks/rides/useRideEstimate";
-import { useCreateRide } from "@/hooks/rides/useCreateRide";
 
 import { getApiErrorMessage } from "@/api/client";
 import { hasValidCoordinates, normalizeLocation } from "@/utils/locationUtils";
@@ -30,107 +27,8 @@ const LAHORE_DEFAULT_LOCATION = {
     provider_place_id: "mock.current_location.lahore",
 };
 
-function getScheduledPickupAt(rideType) {
-    if (rideType !== "scheduled" && rideType !== "recurring") return null;
-
-    const scheduledDate = new Date();
-    scheduledDate.setHours(scheduledDate.getHours() + 2);
-
-    return scheduledDate.toISOString();
-}
-
-function getRecurrenceRule(rideType) {
-    if (rideType !== "recurring") return null;
-    return "FREQ=DAILY;COUNT=5";
-}
-
 function normalizePlace(place, fallback = {}) {
     return normalizeLocation(place, fallback);
-}
-
-function buildRoutePayload({ pickup, dropoff, stops }) {
-    return {
-        origin: {
-            latitude: pickup.latitude,
-            longitude: pickup.longitude,
-        },
-        destination: {
-            latitude: dropoff.latitude,
-            longitude: dropoff.longitude,
-        },
-        stops: stops.filter(hasValidCoordinates).map((stop) => ({
-            latitude: stop.latitude,
-            longitude: stop.longitude,
-        })),
-        vehicle_type: "car",
-    };
-}
-
-function buildEstimatePayload({ pickup, dropoff, stops, rideType }) {
-    return {
-        ride_type: rideType,
-        scheduled_pickup_at: getScheduledPickupAt(rideType),
-        recurrence_rule: getRecurrenceRule(rideType),
-        vehicle_type: "car",
-        pickup,
-        dropoff,
-        stops: stops.filter(hasValidCoordinates).map((stop, index) => ({
-            stop_order: index + 2,
-            stop_type: "intermediate",
-            latitude: stop.latitude,
-            longitude: stop.longitude,
-            address: stop.address,
-            provider: stop.provider || "mapbox",
-            provider_place_id: stop.provider_place_id || null,
-        })),
-    };
-}
-
-function buildCreateRidePayload({
-    pickup,
-    dropoff,
-    stops,
-    riderNote,
-    rideType,
-}) {
-    const validStops = stops.filter(hasValidCoordinates);
-
-    return {
-        ride_type: rideType,
-        scheduled_pickup_at: getScheduledPickupAt(rideType),
-        recurrence_rule: getRecurrenceRule(rideType),
-        rider_note_to_driver: riderNote || null,
-        vehicle_type: "car",
-        stops: [
-            {
-                stop_order: 1,
-                stop_type: "pickup",
-                latitude: pickup.latitude,
-                longitude: pickup.longitude,
-                address: pickup.address,
-                provider: pickup.provider || "mapbox",
-                provider_place_id: pickup.provider_place_id || null,
-            },
-            ...validStops.map((stop, index) => ({
-                stop_order: index + 2,
-                stop_type: "intermediate",
-                latitude: stop.latitude,
-                longitude: stop.longitude,
-                address: stop.address,
-                provider: stop.provider || "mapbox",
-                provider_place_id: stop.provider_place_id || null,
-            })),
-            {
-                stop_order: validStops.length + 2,
-                stop_type: "dropoff",
-                latitude: dropoff.latitude,
-                longitude: dropoff.longitude,
-                address: dropoff.address,
-                provider: dropoff.provider || "mapbox",
-                provider_place_id: dropoff.provider_place_id || null,
-            },
-        ],
-    };
 }
 
 export default function RiderHomePage() {
@@ -145,9 +43,6 @@ export default function RiderHomePage() {
     const surgeZonesQuery = useSurgeZones("Lahore");
 
     const reverseGeocodeMutation = useReverseGeocode();
-    const routePreviewMutation = useRoutePreview();
-    const estimateMutation = useRideEstimate();
-    const createRideMutation = useCreateRide();
 
     const [pickup, setPickup] = useState(LAHORE_DEFAULT_LOCATION);
     const [dropoff, setDropoff] = useState(null);
@@ -170,10 +65,6 @@ export default function RiderHomePage() {
     const rider = riderQuery.data?.rider || riderQuery.data;
     const user = meQuery.data?.user;
 
-    const routePreview = routePreviewMutation.data;
-    const route = routePreview?.route;
-    const estimate = estimateMutation.data;
-
     useEffect(() => {
         const savedPlace = location.state?.saved_place;
         const useAs = location.state?.use_as;
@@ -187,8 +78,6 @@ export default function RiderHomePage() {
             setDropoff(selectedPlace);
         }
 
-        estimateMutation.reset();
-        routePreviewMutation.reset();
         navigate(location.pathname, { replace: true, state: null });
     }, [location.pathname, location.state, navigate]);
 
@@ -238,9 +127,6 @@ export default function RiderHomePage() {
 
         setIsMapPickerActive(false);
 
-        estimateMutation.reset();
-        routePreviewMutation.reset();
-
         try {
             const data = await reverseGeocodeMutation.mutateAsync({
                 latitude: fallbackLocation.latitude,
@@ -264,15 +150,11 @@ export default function RiderHomePage() {
     function handleSetPickup(place) {
         setPickup(normalizePlace(place));
         setIsMapPickerActive(false);
-        estimateMutation.reset();
-        routePreviewMutation.reset();
     }
 
     function handleSetDropoff(place) {
         setDropoff(normalizePlace(place));
         setIsMapPickerActive(false);
-        estimateMutation.reset();
-        routePreviewMutation.reset();
     }
 
     function handleSetStops(updater) {
@@ -282,71 +164,23 @@ export default function RiderHomePage() {
 
             return nextStops;
         });
-
-        estimateMutation.reset();
-        routePreviewMutation.reset();
     }
 
-    async function handleEstimate() {
+    function handlePreviewRouteAndFare() {
         if (!hasValidCoordinates(pickup) || !hasValidCoordinates(dropoff)) {
             toast.error("Select pickup and dropoff first");
             return;
         }
 
-        try {
-            await routePreviewMutation.mutateAsync(
-                buildRoutePayload({
-                    pickup,
-                    dropoff,
-                    stops,
-                }),
-            );
-
-            await estimateMutation.mutateAsync(
-                buildEstimatePayload({
-                    pickup,
-                    dropoff,
-                    stops,
-                    rideType,
-                }),
-            );
-
-            toast.success("Route and fare ready");
-        } catch (error) {
-            toast.error(getApiErrorMessage(error));
-        }
-    }
-
-    async function handleCreateRide() {
-        if (!hasValidCoordinates(pickup) || !hasValidCoordinates(dropoff)) {
-            toast.error("Select pickup and dropoff first");
-            return;
-        }
-
-        try {
-            const data = await createRideMutation.mutateAsync(
-                buildCreateRidePayload({
-                    pickup,
-                    dropoff,
-                    stops,
-                    riderNote,
-                    rideType,
-                }),
-            );
-
-            const ride = data?.ride || data;
-            const rideId = ride?.id || ride?.ride_id;
-
-            if (!rideId) {
-                toast.error("Ride created, but ride id was missing");
-                return;
-            }
-
-            toast.success("Ride requested");
-            navigate(`/rider/ride/${rideId}/searching`, { replace: true });
-        } catch (error) {
-            toast.error(getApiErrorMessage(error));
-        }
+        navigate("/rider/ride/confirm", {
+            state: {
+                pickup,
+                dropoff,
+                stops,
+                riderNote,
+                rideType,
+            },
+        });
     }
 
     const isInitialLoading =
@@ -392,7 +226,7 @@ export default function RiderHomePage() {
                         nearbyDrivers={nearbyDrivers}
                         surgeZones={surgeZones}
                         mapConfig={mapConfigQuery.data}
-                        route={route}
+                        route={null}
                         locationSelectionTarget={mapSelectionTarget || "pickup"}
                         isMapPickerActive={isMapPickerActive}
                         onPickupChange={handlePickupPinChange}
@@ -451,25 +285,18 @@ export default function RiderHomePage() {
                             setDropoff={handleSetDropoff}
                             setStops={handleSetStops}
                             setRiderNote={setRiderNote}
-                            setRideType={(nextRideType) => {
-                                setRideType(nextRideType);
-                                estimateMutation.reset();
-                                routePreviewMutation.reset();
-                            }}
+                            setRideType={setRideType}
                             activeMapSelectionTarget={mapSelectionTarget}
                             isMapPickerActive={isMapPickerActive}
                             onPickLocationFromMap={handlePickLocationFromMap}
                             savedPlaces={savedPlaces}
                             currentLocation={pickup || LAHORE_DEFAULT_LOCATION}
-                            estimate={estimate}
-                            routePreview={routePreview}
-                            isEstimating={
-                                routePreviewMutation.isPending ||
-                                estimateMutation.isPending
-                            }
-                            isCreating={createRideMutation.isPending}
-                            onEstimate={handleEstimate}
-                            onCreateRide={handleCreateRide}
+                            estimate={null}
+                            routePreview={null}
+                            isEstimating={false}
+                            isCreating={false}
+                            onEstimate={handlePreviewRouteAndFare}
+                            onCreateRide={() => {}}
                         />
                     </div>
                 )}

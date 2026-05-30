@@ -8,65 +8,24 @@ import { LocationSearchInput } from "@/components/ride/LocationSearchInput";
 import { FareEstimateCard } from "@/components/ride/FareEstimateCard";
 import { hasValidCoordinates } from "@/utils/locationUtils";
 
-function LocationSearchWithMapPin({
-  label,
-  value,
-  onSelect,
-  savedPlaces,
-  currentLocation,
-  placeholder,
-  type,
-  isMapPicking,
-  onPickFromMap,
-}) {
+function MapPickButton({ type, isActive, onClick }) {
   const Icon = type === "dropoff" ? Navigation : MapPin;
+  const label =
+    type === "dropoff" ? "Pick dropoff from map" : "Pick pickup from map";
 
   return (
-    <div>
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-sm font-semibold text-[#101820]">{label}</p>
-
-        {isMapPicking ? (
-          <span className="rounded-full bg-[#E8F7F4] px-2.5 py-1 text-xs font-semibold text-[#008C78]">
-            Selecting on map
-          </span>
-        ) : null}
-      </div>
-
-      <div
-        className={
-          isMapPicking
-            ? "rounded-[18px] border border-[#008C78] bg-[#E8F7F4] p-2 ring-4 ring-[#008C78]/10"
-            : "rounded-[18px] border border-[#E1E5EA] bg-white p-2"
-        }
-      >
-        <div className="flex items-center gap-2">
-          <div className="min-w-0 flex-1">
-            <LocationSearchInput
-              label=""
-              value={value}
-              onSelect={onSelect}
-              savedPlaces={savedPlaces}
-              currentLocation={currentLocation}
-              placeholder={placeholder}
-            />
-          </div>
-
-          <button
-            type="button"
-            onClick={onPickFromMap}
-            className={
-              isMapPicking
-                ? "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#008C78] text-white"
-                : "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#F1FBF9] text-[#008C78]"
-            }
-            aria-label={`Pick ${label.toLowerCase()} from map`}
-          >
-            <Icon className="h-5 w-5" />
-          </button>
-        </div>
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        isActive
+          ? "flex h-10 w-10 items-center justify-center rounded-full bg-[#008C78] text-white"
+          : "flex h-10 w-10 items-center justify-center rounded-full bg-[#F1FBF9] text-[#008C78]"
+      }
+      aria-label={label}
+    >
+      <Icon className="h-5 w-5" />
+    </button>
   );
 }
 
@@ -75,22 +34,19 @@ export function RideActionSheet({
   dropoff,
   stops,
   riderNote,
-  rideType,
   setPickup,
   setDropoff,
   setStops,
   setRiderNote,
-  setRideType,
 
   /**
-   * Keep old props supported so existing RiderHomePage logic does not break.
+   * Backward-compatible props.
    */
   mapSelectionTarget,
   setMapSelectionTarget,
 
   /**
-   * New optional props for better UX.
-   * RiderHomePage can pass these to scroll to the map and activate map-pick mode.
+   * New pin-button map-pick props from RiderHomePage.
    */
   activeMapSelectionTarget,
   isMapPickerActive,
@@ -107,6 +63,12 @@ export function RideActionSheet({
 }) {
   const effectiveMapTarget = activeMapSelectionTarget || mapSelectionTarget;
 
+  const isPickupMapPicking =
+    Boolean(isMapPickerActive) && effectiveMapTarget === "pickup";
+
+  const isDropoffMapPicking =
+    Boolean(isMapPickerActive) && effectiveMapTarget === "dropoff";
+
   const canEstimate =
     hasValidCoordinates(pickup) && hasValidCoordinates(dropoff);
 
@@ -119,6 +81,7 @@ export function RideActionSheet({
     }
 
     setMapSelectionTarget?.(target);
+
     toast.message(
       target === "dropoff"
         ? "Tap the map to set dropoff"
@@ -176,60 +139,55 @@ export function RideActionSheet({
         </p>
       </div>
 
-      <div className="mt-5 grid grid-cols-3 gap-2">
-        {["standard", "scheduled", "recurring"].map((type) => (
-          <button
-            key={type}
-            type="button"
-            onClick={() => setRideType(type)}
-            className={
-              rideType === type
-                ? "h-11 rounded-[14px] bg-[#E8F7F4] text-sm font-semibold capitalize text-[#008C78]"
-                : "h-11 rounded-[14px] border border-[#E1E5EA] bg-white text-sm font-semibold capitalize text-[#4B5563]"
-            }
-          >
-            {type}
-          </button>
-        ))}
-      </div>
-
-      {rideType !== "standard" ? (
-        <div className="mt-3 rounded-[16px] border border-[#F59E0B]/20 bg-[#FFF7ED] p-3">
-          <p className="text-sm font-medium text-[#92400E]">
-            {rideType === "scheduled"
-              ? "Scheduled ride UI is selected. We will use a demo scheduled time for now."
-              : "Recurring ride UI is selected. We will use a demo recurrence rule for now."}
-          </p>
-        </div>
-      ) : null}
-
       <div className="mt-5 space-y-4">
-        <LocationSearchWithMapPin
+        <LocationSearchInput
           label="Pickup"
-          type="pickup"
           value={pickup}
           onSelect={setPickup}
           savedPlaces={savedPlaces}
           currentLocation={currentLocation}
           placeholder="Pickup location"
-          isMapPicking={
-            Boolean(isMapPickerActive) && effectiveMapTarget === "pickup"
+          showSearchIcon={false}
+          isHighlighted={isPickupMapPicking}
+          labelEnd={
+            isPickupMapPicking ? (
+              <span className="rounded-full bg-[#E8F7F4] px-2.5 py-1 text-xs font-semibold text-[#008C78]">
+                Selecting on map
+              </span>
+            ) : null
           }
-          onPickFromMap={() => handlePickFromMap("pickup")}
+          rightAction={
+            <MapPickButton
+              type="pickup"
+              isActive={isPickupMapPicking}
+              onClick={() => handlePickFromMap("pickup")}
+            />
+          }
         />
 
-        <LocationSearchWithMapPin
+        <LocationSearchInput
           label="Dropoff"
-          type="dropoff"
           value={dropoff}
           onSelect={setDropoff}
           savedPlaces={savedPlaces}
           currentLocation={currentLocation}
           placeholder="Where to?"
-          isMapPicking={
-            Boolean(isMapPickerActive) && effectiveMapTarget === "dropoff"
+          showSearchIcon={false}
+          isHighlighted={isDropoffMapPicking}
+          labelEnd={
+            isDropoffMapPicking ? (
+              <span className="rounded-full bg-[#E8F7F4] px-2.5 py-1 text-xs font-semibold text-[#008C78]">
+                Selecting on map
+              </span>
+            ) : null
           }
-          onPickFromMap={() => handlePickFromMap("dropoff")}
+          rightAction={
+            <MapPickButton
+              type="dropoff"
+              isActive={isDropoffMapPicking}
+              onClick={() => handlePickFromMap("dropoff")}
+            />
+          }
         />
 
         {stops.map((stop, index) => (
