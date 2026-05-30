@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Car, MapPin, Star, Zap } from "lucide-react";
+import { MapPin } from "lucide-react";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MapboxMap } from "@/components/map/MapboxMap";
 import { RideActionSheet } from "@/components/ride/RideActionSheet";
@@ -59,12 +58,10 @@ function buildRoutePayload({ pickup, dropoff, stops }) {
             latitude: dropoff.latitude,
             longitude: dropoff.longitude,
         },
-        stops: stops
-            .filter(hasValidCoordinates)
-            .map((stop) => ({
-                latitude: stop.latitude,
-                longitude: stop.longitude,
-            })),
+        stops: stops.filter(hasValidCoordinates).map((stop) => ({
+            latitude: stop.latitude,
+            longitude: stop.longitude,
+        })),
         vehicle_type: "car",
     };
 }
@@ -77,17 +74,15 @@ function buildEstimatePayload({ pickup, dropoff, stops, rideType }) {
         vehicle_type: "car",
         pickup,
         dropoff,
-        stops: stops
-            .filter(hasValidCoordinates)
-            .map((stop, index) => ({
-                stop_order: index + 2,
-                stop_type: "intermediate",
-                latitude: stop.latitude,
-                longitude: stop.longitude,
-                address: stop.address,
-                provider: stop.provider || "mapbox",
-                provider_place_id: stop.provider_place_id || null,
-            })),
+        stops: stops.filter(hasValidCoordinates).map((stop, index) => ({
+            stop_order: index + 2,
+            stop_type: "intermediate",
+            latitude: stop.latitude,
+            longitude: stop.longitude,
+            address: stop.address,
+            provider: stop.provider || "mapbox",
+            provider_place_id: stop.provider_place_id || null,
+        })),
     };
 }
 
@@ -141,6 +136,7 @@ function buildCreateRidePayload({
 export default function RiderHomePage() {
     const navigate = useNavigate();
     const location = useLocation();
+    const mapAreaRef = useRef(null);
 
     const meQuery = useMe();
     const riderQuery = useRiderProfile();
@@ -158,7 +154,9 @@ export default function RiderHomePage() {
     const [stops, setStops] = useState([]);
     const [rideType, setRideType] = useState("standard");
     const [riderNote, setRiderNote] = useState("Call me when arrived");
-    const [mapSelectionTarget, setMapSelectionTarget] = useState("pickup");
+
+    const [mapSelectionTarget, setMapSelectionTarget] = useState(null);
+    const [isMapPickerActive, setIsMapPickerActive] = useState(false);
 
     const nearbyDriversQuery = useNearbyDrivers({
         latitude: pickup?.latitude,
@@ -175,10 +173,6 @@ export default function RiderHomePage() {
     const routePreview = routePreviewMutation.data;
     const route = routePreview?.route;
     const estimate = estimateMutation.data;
-
-    const activeSurgeZone = useMemo(() => {
-        return surgeZones.find((zone) => Number(zone.surge_multiplier) > 1);
-    }, [surgeZones]);
 
     useEffect(() => {
         const savedPlace = location.state?.saved_place;
@@ -198,27 +192,51 @@ export default function RiderHomePage() {
         navigate(location.pathname, { replace: true, state: null });
     }, [location.pathname, location.state, navigate]);
 
+    function handlePickLocationFromMap(target) {
+        const safeTarget = target === "dropoff" ? "dropoff" : "pickup";
+
+        setMapSelectionTarget(safeTarget);
+        setIsMapPickerActive(true);
+
+        requestAnimationFrame(() => {
+            mapAreaRef.current?.scrollIntoView({
+                behavior: "smooth",
+                block: "start",
+            });
+        });
+
+        toast.message(
+            safeTarget === "dropoff"
+                ? "Tap the map to set dropoff"
+                : "Tap the map to set pickup",
+        );
+    }
+
     async function handlePickupPinChange(location) {
         await handleMapLocationChange("pickup", location);
     }
 
     async function handleMapLocationChange(target, location) {
+        const safeTarget = target === "dropoff" ? "dropoff" : "pickup";
+
         const fallbackLocation = {
             latitude: Number(location.latitude),
             longitude: Number(location.longitude),
             address:
-                target === "dropoff"
+                safeTarget === "dropoff"
                     ? "Selected dropoff pin"
                     : "Selected pickup pin",
             provider: "mapbox",
             provider_place_id: null,
         };
 
-        if (target === "dropoff") {
+        if (safeTarget === "dropoff") {
             setDropoff(fallbackLocation);
         } else {
             setPickup(fallbackLocation);
         }
+
+        setIsMapPickerActive(false);
 
         estimateMutation.reset();
         routePreviewMutation.reset();
@@ -232,7 +250,7 @@ export default function RiderHomePage() {
             const nextLocation = normalizeLocation(data, fallbackLocation);
 
             if (nextLocation) {
-                if (target === "dropoff") {
+                if (safeTarget === "dropoff") {
                     setDropoff(nextLocation);
                 } else {
                     setPickup(nextLocation);
@@ -245,12 +263,14 @@ export default function RiderHomePage() {
 
     function handleSetPickup(place) {
         setPickup(normalizePlace(place));
+        setIsMapPickerActive(false);
         estimateMutation.reset();
         routePreviewMutation.reset();
     }
 
     function handleSetDropoff(place) {
         setDropoff(normalizePlace(place));
+        setIsMapPickerActive(false);
         estimateMutation.reset();
         routePreviewMutation.reset();
     }
@@ -269,7 +289,7 @@ export default function RiderHomePage() {
 
     async function handleEstimate() {
         if (!hasValidCoordinates(pickup) || !hasValidCoordinates(dropoff)) {
-            toast.error("Select pickup and dropoff from the suggestions first");
+            toast.error("Select pickup and dropoff first");
             return;
         }
 
@@ -299,7 +319,7 @@ export default function RiderHomePage() {
 
     async function handleCreateRide() {
         if (!hasValidCoordinates(pickup) || !hasValidCoordinates(dropoff)) {
-            toast.error("Select pickup and dropoff from the suggestions first");
+            toast.error("Select pickup and dropoff first");
             return;
         }
 
@@ -346,9 +366,11 @@ export default function RiderHomePage() {
                     <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-red-50">
                         <MapPin className="h-8 w-8 text-[#DC2626]" />
                     </div>
+
                     <h1 className="mt-5 text-2xl font-bold text-[#101820]">
                         Could not load rider home
                     </h1>
+
                     <p className="mt-2 text-base text-[#4B5563]">
                         Please check the mock server and try again.
                     </p>
@@ -360,7 +382,10 @@ export default function RiderHomePage() {
     return (
         <main className="min-h-screen bg-white">
             <section className="mx-auto min-h-screen w-full max-w-[430px] bg-white">
-                <div className="relative h-[48vh] min-h-[390px]">
+                <div
+                    ref={mapAreaRef}
+                    className="relative h-[60vh] min-h-[470px] max-h-[620px]"
+                >
                     <MapboxMap
                         pickup={pickup}
                         dropoff={dropoff}
@@ -368,80 +393,54 @@ export default function RiderHomePage() {
                         surgeZones={surgeZones}
                         mapConfig={mapConfigQuery.data}
                         route={route}
-                        locationSelectionTarget={mapSelectionTarget}
+                        locationSelectionTarget={mapSelectionTarget || "pickup"}
+                        isMapPickerActive={isMapPickerActive}
                         onPickupChange={handlePickupPinChange}
                         onLocationChange={handleMapLocationChange}
                     />
 
-                    <header className="absolute left-0 right-0 top-0 z-40 px-5 pt-6">
-                        <div className="flex items-start justify-between gap-3">
-                            <HomeSidebar
-                                role="rider"
-                                profile={{
-                                    name: user?.name || "Rider",
-                                    email: user?.email,
-                                    phone: user?.phone,
-                                    initials: user?.name
-                                        ?.split(" ")
-                                        .filter(Boolean)
-                                        .slice(0, 2)
-                                        .map((part) => part[0]?.toUpperCase())
-                                        .join(""),
-                                    profile_photo_url:
-                                        user?.profile_photo_url || null,
-                                    rating: rider?.average_rating || "5.0",
-                                }}
-                            />
+                    <header className="absolute left-0 top-0 z-40 px-5 pt-6">
+                        <HomeSidebar
+                            role="rider"
+                            profile={{
+                                name: user?.name || "Rider",
+                                email: user?.email,
+                                phone: user?.phone,
+                                initials: user?.name
+                                    ?.split(" ")
+                                    .filter(Boolean)
+                                    .slice(0, 2)
+                                    .map((part) => part[0]?.toUpperCase())
+                                    .join(""),
+                                profile_photo_url:
+                                    user?.profile_photo_url || null,
+                                rating: rider?.average_rating || "5.0",
+                            }}
+                        />
+                    </header>
 
-                            <div className="flex max-w-[calc(100%-56px)] flex-wrap justify-end gap-2">
-                                <Badge className="rounded-full bg-white px-3 py-1.5 text-[#101820] shadow-soft hover:bg-white">
-                                    <Star className="mr-1 h-3.5 w-3.5 text-[#F59E0B]" />
-                                    {rider?.average_rating || "5.0"} rating
-                                </Badge>
-
-                                <Badge className="rounded-full bg-white px-3 py-1.5 text-[#101820] shadow-soft hover:bg-white">
-                                    <Car className="mr-1 h-3.5 w-3.5 text-[#008C78]" />
-                                    {nearbyDriversQuery.isLoading
-                                        ? "Loading"
-                                        : `${nearbyDrivers.length} nearby`}
-                                </Badge>
-
-                                {activeSurgeZone ? (
-                                    <Badge className="rounded-full bg-[#FFF7ED] px-3 py-1.5 text-[#C2410C] shadow-soft hover:bg-[#FFF7ED]">
-                                        <Zap className="mr-1 h-3.5 w-3.5" />
-                                        {activeSurgeZone.surge_multiplier}x surge
-                                    </Badge>
-                                ) : null}
+                    {isMapPickerActive ? (
+                        <div className="pointer-events-none absolute left-5 right-5 top-[92px] z-40">
+                            <div className="mx-auto flex w-fit max-w-full items-center gap-2 rounded-full border border-white/70 bg-white/95 px-4 py-2 text-sm font-semibold text-[#101820] shadow-soft backdrop-blur">
+                                <MapPin className="h-4 w-4 text-[#008C78]" />
+                                Tap map to set{" "}
+                                {mapSelectionTarget === "dropoff"
+                                    ? "dropoff"
+                                    : "pickup"}
                             </div>
                         </div>
-                    </header>
+                    ) : null}
                 </div>
 
                 {isInitialLoading ? (
-                    <div className="-mt-6 rounded-t-[28px] border border-[#E1E5EA] bg-white px-6 pb-6 pt-6 shadow-sheet">
+                    <div className="-mt-10 relative z-50 rounded-t-[28px] border border-[#E1E5EA] bg-white px-6 pb-6 pt-6 shadow-sheet">
                         <Skeleton className="h-7 w-40 rounded-full" />
                         <Skeleton className="mt-4 h-14 rounded-[16px]" />
                         <Skeleton className="mt-4 h-14 rounded-[16px]" />
                         <Skeleton className="mt-4 h-14 rounded-[16px]" />
                     </div>
                 ) : (
-                    <div className="-mt-7 relative z-50">
-                        {savedPlaces.length ? (
-                            <div className="mb-3 flex gap-2 overflow-x-auto px-6 pb-1">
-                                {savedPlaces.slice(0, 4).map((place) => (
-                                    <button
-                                        key={place.id}
-                                        type="button"
-                                        onClick={() => handleSetDropoff(place)}
-                                        className="flex shrink-0 items-center gap-2 rounded-full border border-[#E1E5EA] bg-white px-3 py-2 text-sm font-semibold text-[#101820] shadow-soft"
-                                    >
-                                        <MapPin className="h-4 w-4 text-[#008C78]" />
-                                        {place.label}
-                                    </button>
-                                ))}
-                            </div>
-                        ) : null}
-
+                    <div className="-mt-10 relative z-50">
                         <RideActionSheet
                             pickup={pickup}
                             dropoff={dropoff}
@@ -457,8 +456,9 @@ export default function RiderHomePage() {
                                 estimateMutation.reset();
                                 routePreviewMutation.reset();
                             }}
-                            mapSelectionTarget={mapSelectionTarget}
-                            setMapSelectionTarget={setMapSelectionTarget}
+                            activeMapSelectionTarget={mapSelectionTarget}
+                            isMapPickerActive={isMapPickerActive}
+                            onPickLocationFromMap={handlePickLocationFromMap}
                             savedPlaces={savedPlaces}
                             currentLocation={pickup || LAHORE_DEFAULT_LOCATION}
                             estimate={estimate}

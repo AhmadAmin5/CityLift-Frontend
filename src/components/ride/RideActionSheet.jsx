@@ -8,6 +8,68 @@ import { LocationSearchInput } from "@/components/ride/LocationSearchInput";
 import { FareEstimateCard } from "@/components/ride/FareEstimateCard";
 import { hasValidCoordinates } from "@/utils/locationUtils";
 
+function LocationSearchWithMapPin({
+  label,
+  value,
+  onSelect,
+  savedPlaces,
+  currentLocation,
+  placeholder,
+  type,
+  isMapPicking,
+  onPickFromMap,
+}) {
+  const Icon = type === "dropoff" ? Navigation : MapPin;
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-sm font-semibold text-[#101820]">{label}</p>
+
+        {isMapPicking ? (
+          <span className="rounded-full bg-[#E8F7F4] px-2.5 py-1 text-xs font-semibold text-[#008C78]">
+            Selecting on map
+          </span>
+        ) : null}
+      </div>
+
+      <div
+        className={
+          isMapPicking
+            ? "rounded-[18px] border border-[#008C78] bg-[#E8F7F4] p-2 ring-4 ring-[#008C78]/10"
+            : "rounded-[18px] border border-[#E1E5EA] bg-white p-2"
+        }
+      >
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <LocationSearchInput
+              label=""
+              value={value}
+              onSelect={onSelect}
+              savedPlaces={savedPlaces}
+              currentLocation={currentLocation}
+              placeholder={placeholder}
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={onPickFromMap}
+            className={
+              isMapPicking
+                ? "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#008C78] text-white"
+                : "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#F1FBF9] text-[#008C78]"
+            }
+            aria-label={`Pick ${label.toLowerCase()} from map`}
+          >
+            <Icon className="h-5 w-5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function RideActionSheet({
   pickup,
   dropoff,
@@ -19,8 +81,21 @@ export function RideActionSheet({
   setStops,
   setRiderNote,
   setRideType,
+
+  /**
+   * Keep old props supported so existing RiderHomePage logic does not break.
+   */
   mapSelectionTarget,
   setMapSelectionTarget,
+
+  /**
+   * New optional props for better UX.
+   * RiderHomePage can pass these to scroll to the map and activate map-pick mode.
+   */
+  activeMapSelectionTarget,
+  isMapPickerActive,
+  onPickLocationFromMap,
+
   savedPlaces,
   currentLocation,
   estimate,
@@ -30,8 +105,26 @@ export function RideActionSheet({
   onEstimate,
   onCreateRide,
 }) {
-  const canEstimate = hasValidCoordinates(pickup) && hasValidCoordinates(dropoff);
+  const effectiveMapTarget = activeMapSelectionTarget || mapSelectionTarget;
+
+  const canEstimate =
+    hasValidCoordinates(pickup) && hasValidCoordinates(dropoff);
+
   const canCreate = Boolean(estimate) && canEstimate;
+
+  function handlePickFromMap(target) {
+    if (onPickLocationFromMap) {
+      onPickLocationFromMap(target);
+      return;
+    }
+
+    setMapSelectionTarget?.(target);
+    toast.message(
+      target === "dropoff"
+        ? "Tap the map to set dropoff"
+        : "Tap the map to set pickup"
+    );
+  }
 
   function addStop() {
     setStops((current) => [
@@ -111,56 +204,44 @@ export function RideActionSheet({
       ) : null}
 
       <div className="mt-5 space-y-4">
-        <div className="grid grid-cols-2 gap-2 rounded-[18px] bg-[#F7F8FA] p-2">
-          <button
-            type="button"
-            onClick={() => setMapSelectionTarget?.("pickup")}
-            className={
-              mapSelectionTarget === "pickup"
-                ? "h-11 rounded-[14px] bg-white text-sm font-semibold text-[#008C78] shadow-soft"
-                : "h-11 rounded-[14px] text-sm font-semibold text-[#4B5563]"
-            }
-          >
-            Map sets pickup
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setMapSelectionTarget?.("dropoff")}
-            className={
-              mapSelectionTarget === "dropoff"
-                ? "h-11 rounded-[14px] bg-white text-sm font-semibold text-[#008C78] shadow-soft"
-                : "h-11 rounded-[14px] text-sm font-semibold text-[#4B5563]"
-            }
-          >
-            Map sets dropoff
-          </button>
-        </div>
-
-        <LocationSearchInput
+        <LocationSearchWithMapPin
           label="Pickup"
+          type="pickup"
           value={pickup}
           onSelect={setPickup}
           savedPlaces={savedPlaces}
           currentLocation={currentLocation}
           placeholder="Pickup location"
+          isMapPicking={
+            Boolean(isMapPickerActive) && effectiveMapTarget === "pickup"
+          }
+          onPickFromMap={() => handlePickFromMap("pickup")}
         />
 
-        <LocationSearchInput
+        <LocationSearchWithMapPin
           label="Dropoff"
+          type="dropoff"
           value={dropoff}
           onSelect={setDropoff}
           savedPlaces={savedPlaces}
           currentLocation={currentLocation}
           placeholder="Where to?"
+          isMapPicking={
+            Boolean(isMapPickerActive) && effectiveMapTarget === "dropoff"
+          }
+          onPickFromMap={() => handlePickFromMap("dropoff")}
         />
 
         {stops.map((stop, index) => (
-          <div key={stop.id} className="rounded-[18px] border border-[#E1E5EA] p-3">
+          <div
+            key={stop.id}
+            className="rounded-[18px] border border-[#E1E5EA] p-3"
+          >
             <div className="mb-3 flex items-center justify-between">
               <p className="text-sm font-semibold text-[#101820]">
                 Stop {index + 1}
               </p>
+
               <button
                 type="button"
                 onClick={() => removeStop(stop.id)}
@@ -196,6 +277,7 @@ export function RideActionSheet({
           <p className="mb-2 text-sm font-semibold text-[#101820]">
             Note to driver
           </p>
+
           <Textarea
             value={riderNote}
             onChange={(event) => setRiderNote(event.target.value)}
@@ -211,7 +293,9 @@ export function RideActionSheet({
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#E8F7F4]">
                   <MapPin className="h-4 w-4 text-[#008C78]" />
                 </div>
+
                 <div className="h-8 w-px bg-[#D7DCE2]" />
+
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#101820]">
                   <Navigation className="h-4 w-4 text-white" />
                 </div>
@@ -221,7 +305,9 @@ export function RideActionSheet({
                 <p className="truncate text-sm font-semibold text-[#101820]">
                   {pickup?.address || "Pickup not selected"}
                 </p>
+
                 <Separator className="my-3 bg-[#E1E5EA]" />
+
                 <p className="truncate text-sm font-semibold text-[#101820]">
                   {dropoff?.address || "Dropoff not selected"}
                 </p>
