@@ -29,44 +29,10 @@ import { useRide } from "@/hooks/rides/useRide";
 import { useRideReceipt } from "@/hooks/rides/useRideReceipt";
 import { getReceiptFromResponse, getRideFromResponse } from "@/utils/apiShapes";
 import { toDriverSummaryView } from "@/utils/rideUi";
+import { MapboxMap } from "@/components/map/MapboxMap";
+import { useMapConfig } from "@/hooks/maps/useMapConfig";
 
-const demoSummary = {
-  ride_id: "ride_123",
-  completed_at: "May 27, 2026 · 4:58 PM",
-  rider: {
-    name: "Ali Khan",
-    initials: "AK",
-    rating: 5.0,
-  },
-  pickup: {
-    address: "Gulberg, Lahore",
-    time: "4:22 PM",
-  },
-  dropoff: {
-    address: "Johar Town, Lahore",
-    time: "4:58 PM",
-  },
-  trip: {
-    distance_km: 12.4,
-    duration_min: 36,
-    waiting_min: 4,
-    traffic_delay_min: 6,
-  },
-  fare: {
-    currency: "PKR",
-    final_fare: 760,
-    base_fare: 100,
-    distance_fare: 496,
-    duration_fare: 264,
-    waiting_fare: 25,
-    traffic_delay_fare: 28,
-    surge_amount: 72,
-    platform_fee: 95,
-    driver_earnings: 665,
-    payment_method: "Cash",
-    payment_status: "paid",
-  },
-};
+
 
 function SummaryHero({ summary }) {
   return (
@@ -399,6 +365,8 @@ export default function DriverRideSummaryPage() {
   const rideQuery = useRide(ride_id);
   const receiptQuery = useRideReceipt(ride_id);
 
+  const mapConfigQuery = useMapConfig();
+
   const rideData = getRideFromResponse(rideQuery.data);
   const receiptData = getReceiptFromResponse(receiptQuery.data);
   const summary = toDriverSummaryView(receiptData, rideData);
@@ -447,7 +415,16 @@ export default function DriverRideSummaryPage() {
         <div className="mt-8 space-y-4">
           <SummaryHero summary={summary} />
 
-          <CompletedMapMock />
+          <Card className="overflow-hidden rounded-[28px] border-[#E1E5EA] bg-[#EAF2F0] p-0 shadow-sm">
+            <div className="relative h-[220px]">
+              <MapboxMap
+                pickup={rideData?.pickup}
+                dropoff={rideData?.dropoff}
+                mapConfig={mapConfigQuery.data}
+                className="relative h-full w-full"
+              />
+            </div>
+          </Card>
 
           <Card className="rounded-[24px] border-[#E1E5EA] bg-white p-4 shadow-sm">
             <div className="flex items-center gap-3">

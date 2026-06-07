@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -42,38 +42,18 @@ import { LoadingState } from "@/common/LoadingState";
 import { getApiErrorMessage } from "@/api/client";
 import { useCancelRide } from "@/hooks/rides/useCancelRide";
 import { useRide } from "@/hooks/rides/useRide";
-import { useStartRide } from "@/hooks/rides/useRideActions";
+import { useStartRide, useSubmitRideTracking } from "@/hooks/rides/useRideActions";
 import { getRideFromResponse } from "@/utils/apiShapes";
 import { toDriverTripView } from "@/utils/rideUi";
+import { MapboxMap } from "@/components/map/MapboxMap";
+import { useMapConfig } from "@/hooks/maps/useMapConfig";
+import { useRideSocket } from "@/hooks/socket/useRideSocket";
+import { toast } from "sonner";
+import { getAccessToken } from "@/utils/tokenStorage";
+import { createSocket } from "@/socket/socket";
+import { PlatformGeolocation } from "@/utils/geolocation";
 
-const demoRide = {
-  ride_id: "ride_123",
-  status: "arrived",
-  arrived_at: "4:18 PM",
-  free_waiting_min: 3,
-  waiting_min: 4,
-  rider: {
-    name: "Ali Khan",
-    initials: "AK",
-    rating: 5.0,
-    phone: "+92 300 1234567",
-  },
-  pickup: {
-    address: "Gulberg, Lahore",
-    detail: "Main Boulevard, near Liberty signal",
-    landmark: "Outside coffee shop entrance",
-  },
-  dropoff: {
-    address: "Johar Town, Lahore",
-    detail: "Near Emporium Mall",
-  },
-  trip: {
-    estimated_distance_km: 12.4,
-    estimated_duration_min: 33,
-    fare_range: "PKR 630-770",
-  },
-  note: "Call me when arrived",
-};
+
 
 function ArrivedMapMock({ ride }) {
   return (
@@ -386,19 +366,197 @@ function SafetyReminderCard() {
 export default function DriverArrivedWaitingPage() {
   const navigate = useNavigate();
   const { ride_id } = useParams();
-
   const [riderNotified, setRiderNotified] = useState(true);
+  const [driverCoords, setDriverCoords] = useState(null);
+  const lastEmitTimeRef = useRef(0);
   const rideQuery = useRide(ride_id);
   const startRideMutation = useStartRide(ride_id);
   const cancelRideMutation = useCancelRide(ride_id);
+  const trackingMutation = useSubmitRideTracking(ride_id);
+
+  const mapConfigQuery = useMapConfig();
 
   const rideData = getRideFromResponse(rideQuery.data);
   const ride = toDriverTripView(rideData);
   const rideId = ride_id || ride.ride_id;
 
+  useEffect(() => {
+    if (rideId) {
+      if (!localStorage.getItem(`arrived_time_${rideId}`)) {
+        localStorage.setItem(`arrived_time_${rideId}`, Date.now().toString());
+      }
+    }
+  }, [rideId]);
+
+  useEffect(() => {
+    const flushOfflineQueue = async () => {
+      if (!navigator.onLine || !rideId) return;
+      const stored = localStorage.getItem(`offline_points_${rideId}`);
+      if (!stored) return;
+      try {
+        const points = JSON.parse(stored);
+        if (points.length === 0) return;
+        console.log(`[OfflineSync] Flushing ${points.length} offline points...`);
+        for (const pt of points) {
+          await submitRideTracking({ rideId, ...pt });
+        }
+        localStorage.removeItem(`offline_points_${rideId}`);
+        console.log(`[OfflineSync] Flush complete.`);
+      } catch (e) {
+        console.error("Error flushing offline points:", e);
+      }
+    };
+
+    const handleOnline = () => {
+      flushOfflineQueue();
+    };
+
+    window.addEventListener("online", handleOnline);
+    if (navigator.onLine) {
+      flushOfflineQueue();
+    }
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [rideId]);
+
+  useRideSocket({
+    rideId: ride_id,
+    handlers: {
+      onStatusUpdate: (payload) => {
+        console.log("[DriverArrived] 🔔 ride:status:update received:", payload);
+        const newStatus = payload?.new_status || payload?.status;
+        if (payload?.ride_id !== ride_id) return;
+        if (newStatus === "cancelled") {
+          toast.error("Ride was cancelled by the rider");
+          navigate("/driver/home", { replace: true });
+        }
+      },
+      onCancelled: (payload) => {
+        console.log("[DriverArrived] 🔔 ride:cancelled received:", payload);
+        if (!payload?.ride_id || payload.ride_id === ride_id) {
+          toast.error("Ride was cancelled");
+          navigate("/driver/home", { replace: true });
+        }
+      },
+      onLiveUpdate: (payload) => {
+        console.log("[DriverArrived] 🔔 ride:live:update received:", payload);
+        rideQuery.refetch();
+      },
+    },
+    enabled: Boolean(ride_id),
+  });
+
+  useEffect(() => {
+    let watchId = null;
+
+    async function startWatching() {
+      if (!ride_id) return;
+
+      try {
+        const permissionStatus = await PlatformGeolocation.checkPermissions();
+        if (permissionStatus.location !== "granted") {
+          const requestStatus = await PlatformGeolocation.requestPermissions();
+          if (requestStatus.location !== "granted") {
+            toast.error("Location permission is required for tracking");
+            return;
+          }
+        }
+
+        watchId = await PlatformGeolocation.watchPosition(
+          {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0,
+          },
+          async (position, err) => {
+            if (err) {
+              console.error("Continuous tracking error:", err);
+              return;
+            }
+            if (position?.coords) {
+              const nextLoc = {
+                latitude: Number(position.coords.latitude),
+                longitude: Number(position.coords.longitude),
+              };
+              setDriverCoords(nextLoc);
+
+              const speed_kmph = position.coords.speed ? Math.round(position.coords.speed * 3.6) : 0;
+              const heading = position.coords.heading || 90;
+
+              // Throttle to 5 seconds
+              const now = Date.now();
+              if (now - lastEmitTimeRef.current < 5000) {
+                return;
+              }
+              lastEmitTimeRef.current = now;
+
+              const trackingPayload = {
+                latitude: nextLoc.latitude,
+                longitude: nextLoc.longitude,
+                speed_kmph,
+                heading,
+                traffic_level: "medium",
+                eta_min: 0,
+                distance_remaining_km: 0,
+              };
+
+              let sentSuccessfully = false;
+              const token = getAccessToken();
+              const socket = createSocket(token);
+
+              if (navigator.onLine && socket?.connected) {
+                try {
+                  console.log("[DriverArrived] 📡 Emitting ride:tracking:update:", { ride_id, ...trackingPayload });
+                  socket.emit("ride:tracking:update", { ride_id, ...trackingPayload });
+                  sentSuccessfully = true;
+                } catch (socketErr) {
+                  console.error("[DriverArrived] Socket emit failed:", socketErr);
+                }
+              }
+
+              if (!sentSuccessfully && navigator.onLine) {
+                try {
+                  console.log("[DriverArrived] 📡 Falling back to HTTP tracking POST...");
+                  await submitRideTracking({ rideId: ride_id, ...trackingPayload });
+                  sentSuccessfully = true;
+                } catch (httpErr) {
+                  console.error("[DriverArrived] HTTP fallback failed:", httpErr);
+                }
+              }
+
+              if (!sentSuccessfully) {
+                console.log("[DriverArrived] 💾 Storing telemetry locally...");
+                const stored = localStorage.getItem(`offline_points_${ride_id}`);
+                const points = stored ? JSON.parse(stored) : [];
+                points.push(trackingPayload);
+                localStorage.setItem(`offline_points_${ride_id}`, JSON.stringify(points));
+                localStorage.setItem(`offline_occurred_${ride_id}`, "true");
+              }
+            }
+          }
+        );
+      } catch (error) {
+        console.error("Failed to start watching location:", error);
+      }
+    }
+
+    startWatching();
+
+    return () => {
+      if (watchId !== null) {
+        PlatformGeolocation.clearWatch({ id: watchId });
+      }
+    };
+  }, [ride_id]);
+
   async function handleStartRide() {
     try {
       await startRideMutation.mutateAsync();
+      if (rideId) {
+        localStorage.setItem(`started_time_${rideId}`, Date.now().toString());
+      }
       navigate(`/driver/rides/${rideId}/active`);
     } catch (error) {
       window.alert(getApiErrorMessage(error));
@@ -438,7 +596,22 @@ export default function DriverArrivedWaitingPage() {
     <main className="min-h-screen bg-white">
       <section className="mx-auto min-h-screen w-full max-w-[430px] bg-white">
         <div className="relative h-[47vh] min-h-[410px]">
-          <ArrivedMapMock ride={ride} />
+          <MapboxMap
+            pickup={ride.pickup}
+            dropoff={ride.dropoff}
+            mapConfig={mapConfigQuery.data}
+            nearbyDrivers={
+              driverCoords
+                ? [
+                    {
+                      driver_id: "driver",
+                      latitude: driverCoords.latitude,
+                      longitude: driverCoords.longitude,
+                    },
+                  ]
+                : []
+            }
+          />
 
           <header className="absolute left-0 right-0 top-0 z-40 px-5 pt-6">
             <div className="flex items-center justify-between">

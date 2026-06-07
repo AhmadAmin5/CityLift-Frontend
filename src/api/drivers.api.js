@@ -98,3 +98,14 @@ export async function declineDriverOffer({ offerId, decline_reason }) {
 
   return unwrapData(response);
 }
+
+export async function getDriverRatings() {
+  const response = await api.get("/drivers/me/ratings");
+  return unwrapData(response);
+}
+
+export async function getDriverEarnings(params) {
+  const response = await api.get("/drivers/me/earnings", { params });
+  return unwrapData(response);
+}
+

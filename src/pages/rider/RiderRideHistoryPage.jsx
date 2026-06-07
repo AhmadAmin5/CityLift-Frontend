@@ -21,77 +21,11 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { LoadingState } from "@/common/LoadingState";
+import { ErrorState } from "@/common/ErrorState";
+import { useRides } from "@/hooks/rides/useRides";
 
-const demoRides = [
-  {
-    id: "ride_001",
-    status: "completed",
-    date: "Today",
-    time: "4:42 PM",
-    driver_name: "Ahmed Raza",
-    driver_rating: 4.8,
-    vehicle: "White Toyota Corolla",
-    pickup: "Gulberg, Lahore",
-    dropoff: "Johar Town, Lahore",
-    fare: {
-      currency: "PKR",
-      final_fare: 760,
-    },
-    distance_km: 12.8,
-    duration_min: 35,
-  },
-  {
-    id: "ride_002",
-    status: "completed",
-    date: "Yesterday",
-    time: "8:20 PM",
-    driver_name: "Usman Ali",
-    driver_rating: 4.7,
-    vehicle: "Silver Honda City",
-    pickup: "DHA Phase 5, Lahore",
-    dropoff: "MM Alam Road, Lahore",
-    fare: {
-      currency: "PKR",
-      final_fare: 540,
-    },
-    distance_km: 8.6,
-    duration_min: 24,
-  },
-  {
-    id: "ride_003",
-    status: "cancelled",
-    date: "May 24",
-    time: "10:15 AM",
-    driver_name: null,
-    driver_rating: null,
-    vehicle: null,
-    pickup: "Model Town, Lahore",
-    dropoff: "Liberty Market, Lahore",
-    fare: {
-      currency: "PKR",
-      final_fare: 0,
-    },
-    distance_km: 6.2,
-    duration_min: 18,
-  },
-  {
-    id: "ride_004",
-    status: "completed",
-    date: "May 22",
-    time: "6:05 PM",
-    driver_name: "Bilal Khan",
-    driver_rating: 4.9,
-    vehicle: "Black Suzuki Alto",
-    pickup: "Emporium Mall, Lahore",
-    dropoff: "Wapda Town, Lahore",
-    fare: {
-      currency: "PKR",
-      final_fare: 430,
-    },
-    distance_km: 5.9,
-    duration_min: 20,
-  },
-];
+
 
 function getStatusConfig(status) {
   if (status === "completed") {
@@ -121,6 +55,23 @@ function RideHistoryCard({ ride, onViewDetails }) {
   const statusConfig = getStatusConfig(ride.status);
   const StatusIcon = statusConfig.icon;
 
+  const pickupAddress = ride.pickup?.address || ride.pickup || "Pickup";
+  const dropoffAddress = ride.dropoff?.address || ride.dropoff || "Dropoff";
+
+  const requestedAt = ride.requested_at || ride.created_at;
+  const dateStr = requestedAt ? new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(requestedAt)) : ride.date || "Today";
+  const timeStr = requestedAt ? new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(new Date(requestedAt)) : ride.time || "";
+
+  const finalFare = ride.fare?.final_fare !== undefined ? ride.fare.final_fare : (ride.fare?.estimated_min_fare || 0);
+  const currency = ride.fare?.currency || "PKR";
+
+  const distance = ride.fare?.actual_distance_km || ride.fare?.estimated_distance_km || ride.distance_km || 0;
+  const duration = ride.fare?.actual_duration_min || ride.fare?.estimated_duration_min || ride.duration_min || 0;
+
+  const driverName = ride.driver?.name || ride.driver_name;
+  const driverRating = ride.driver?.average_rating || ride.driver_rating;
+  const vehicleStr = ride.vehicle ? `${ride.vehicle.color || ""} ${ride.vehicle.make || ""} ${ride.vehicle.model || ""}`.trim() : ride.vehicle;
+
   return (
     <Card className="rounded-[24px] border-[#E1E5EA] bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -128,12 +79,12 @@ function RideHistoryCard({ ride, onViewDetails }) {
           <div className="flex items-center gap-2">
             <CalendarClock className="h-4 w-4 text-[#7A8088]" />
             <p className="text-sm font-semibold text-[#4B5563]">
-              {ride.date} · {ride.time}
+              {dateStr} · {timeStr}
             </p>
           </div>
 
           <p className="mt-2 text-lg font-bold tracking-[-0.02em] text-[#101820]">
-            {ride.pickup.split(",")[0]} → {ride.dropoff.split(",")[0]}
+            {pickupAddress.split(",")[0]} → {dropoffAddress.split(",")[0]}
           </p>
         </div>
 
@@ -160,13 +111,13 @@ function RideHistoryCard({ ride, onViewDetails }) {
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-[#101820]">
-            {ride.pickup}
+            {pickupAddress}
           </p>
 
           <Separator className="my-3 bg-[#E1E5EA]" />
 
           <p className="truncate text-sm font-semibold text-[#101820]">
-            {ride.dropoff}
+            {dropoffAddress}
           </p>
         </div>
       </div>
@@ -175,7 +126,7 @@ function RideHistoryCard({ ride, onViewDetails }) {
         <div className="rounded-[16px] bg-[#F7F8FA] p-3">
           <ReceiptText className="h-4 w-4 text-[#008C78]" />
           <p className="mt-2 text-sm font-bold text-[#101820]">
-            {ride.fare.currency} {ride.fare.final_fare}
+            {currency} {finalFare}
           </p>
           <p className="text-xs text-[#8A9099]">Fare</p>
         </div>
@@ -183,7 +134,7 @@ function RideHistoryCard({ ride, onViewDetails }) {
         <div className="rounded-[16px] bg-[#F7F8FA] p-3">
           <Route className="h-4 w-4 text-[#008C78]" />
           <p className="mt-2 text-sm font-bold text-[#101820]">
-            {ride.distance_km} km
+            {distance} km
           </p>
           <p className="text-xs text-[#8A9099]">Distance</p>
         </div>
@@ -191,13 +142,13 @@ function RideHistoryCard({ ride, onViewDetails }) {
         <div className="rounded-[16px] bg-[#F7F8FA] p-3">
           <Clock className="h-4 w-4 text-[#008C78]" />
           <p className="mt-2 text-sm font-bold text-[#101820]">
-            {ride.duration_min} min
+            {duration} min
           </p>
           <p className="text-xs text-[#8A9099]">Time</p>
         </div>
       </div>
 
-      {ride.driver_name ? (
+      {driverName ? (
         <div className="mt-4 flex items-center gap-3 rounded-[18px] bg-[#F7F8FA] p-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white">
             <Car className="h-5 w-5 text-[#008C78]" />
@@ -205,19 +156,23 @@ function RideHistoryCard({ ride, onViewDetails }) {
 
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-bold text-[#101820]">
-              {ride.driver_name}
+              {driverName}
             </p>
-            <p className="mt-0.5 truncate text-xs text-[#4B5563]">
-              {ride.vehicle}
-            </p>
+            {vehicleStr ? (
+              <p className="mt-0.5 truncate text-xs text-[#4B5563]">
+                {vehicleStr}
+              </p>
+            ) : null}
           </div>
 
-          <div className="flex items-center gap-1 text-sm">
-            <Star className="h-4 w-4 fill-[#F59E0B] text-[#F59E0B]" />
-            <span className="font-bold text-[#101820]">
-              {ride.driver_rating}
-            </span>
-          </div>
+          {driverRating ? (
+            <div className="flex items-center gap-1 text-sm">
+              <Star className="h-4 w-4 fill-[#F59E0B] text-[#F59E0B]" />
+              <span className="font-bold text-[#101820]">
+                {driverRating}
+              </span>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -236,11 +191,11 @@ function RideHistoryCard({ ride, onViewDetails }) {
 function RideHistoryStats({ rides }) {
   const completedCount = rides.filter((ride) => ride.status === "completed").length;
   const totalSpent = rides.reduce(
-    (sum, ride) => sum + Number(ride.fare.final_fare || 0),
+    (sum, ride) => sum + Number(ride.fare?.final_fare || ride.fare?.estimated_min_fare || 0),
     0
   );
   const totalDistance = rides.reduce(
-    (sum, ride) => sum + Number(ride.distance_km || 0),
+    (sum, ride) => sum + Number(ride.fare?.actual_distance_km || ride.fare?.estimated_distance_km || ride.distance_km || 0),
     0
   );
 
@@ -273,7 +228,7 @@ function RideHistoryStats({ rides }) {
         </div>
 
         <div className="rounded-[18px] bg-white p-3 shadow-soft">
-          <p className="text-lg font-bold text-[#101820]">PKR {totalSpent}</p>
+          <p className="text-lg font-bold text-[#101820]">PKR {Math.round(totalSpent)}</p>
           <p className="mt-0.5 text-xs text-[#8A9099]">Spent</p>
         </div>
 
@@ -310,15 +265,25 @@ export default function RiderRideHistoryPage() {
   const [activeTab, setActiveTab] = useState("all");
   const [searchText, setSearchText] = useState("");
 
+  const ridesQuery = useRides();
+  const rides = useMemo(() => {
+    return ridesQuery.data?.data || ridesQuery.data || [];
+  }, [ridesQuery.data]);
+
   const filteredRides = useMemo(() => {
-    return demoRides.filter((ride) => {
+    return rides.filter((ride) => {
       const matchesTab = activeTab === "all" || ride.status === activeTab;
 
+      const pickupAddress = ride.pickup?.address || ride.pickup || "";
+      const dropoffAddress = ride.dropoff?.address || ride.dropoff || "";
+      const driverName = ride.driver?.name || ride.driver_name || "";
+      const vehicleStr = ride.vehicle ? `${ride.vehicle.color || ""} ${ride.vehicle.make || ""} ${ride.vehicle.model || ""}` : ride.vehicle || "";
+
       const searchableText = [
-        ride.pickup,
-        ride.dropoff,
-        ride.driver_name,
-        ride.vehicle,
+        pickupAddress,
+        dropoffAddress,
+        driverName,
+        vehicleStr,
         ride.status,
       ]
         .filter(Boolean)
@@ -331,10 +296,26 @@ export default function RiderRideHistoryPage() {
 
       return matchesTab && matchesSearch;
     });
-  }, [activeTab, searchText]);
+  }, [rides, activeTab, searchText]);
 
   function handleViewDetails(ride) {
     navigate(`/rider/rides/${ride.id}`);
+  }
+
+  if (ridesQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <LoadingState label="Loading ride history..." />
+      </main>
+    );
+  }
+
+  if (ridesQuery.isError) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <ErrorState message="Could not load ride history. Please try again." />
+      </main>
+    );
   }
 
   return (
@@ -361,7 +342,7 @@ export default function RiderRideHistoryPage() {
         </header>
 
         <div className="mt-8 space-y-4">
-          <RideHistoryStats rides={demoRides} />
+          <RideHistoryStats rides={rides} />
 
           <div className="flex h-14 items-center gap-3 rounded-[14px] border border-[#E1E5EA] bg-white px-4 focus-within:border-[#008C78] focus-within:ring-4 focus-within:ring-[#008C78]/10">
             <Search className="h-5 w-5 text-[#7A8088]" />

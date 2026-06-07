@@ -26,6 +26,10 @@ import DriverActiveTripPage from "./pages/driver/DriverActiveTripPage";
 import DriverRideSummaryPage from "./pages/driver/DriverRideSummaryPage";
 import DriverEarningsPage from "./pages/driver/DriverEarningsPage";
 import DriverRatingsPage from "./pages/driver/DriverRatingsPage";
+import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
+import AdminPricingRulesPage from "./pages/admin/AdminPricingRulesPage";
+import AdminDriverDocumentsPage from "./pages/admin/AdminDriverDocumentsPage";
+import AdminSurgeZonesPage from "./pages/admin/AdminSurgeZonesPage";
 
 export default function App() {
     return (
@@ -143,24 +147,19 @@ export default function App() {
             <Route element={<RequireAuth allowedRoles={["admin"]} />}>
                 <Route
                     path="/admin/dashboard"
-                    element={
-                        <PlaceholderPage
-                            title="Admin Dashboard"
-                            subtitle="Admin demo screens will show pricing rules, surge zones, ML models, and document review."
-                        />
-                    }
+                    element={<AdminDashboardPage />}
                 />
                 <Route
                     path="/admin/pricing-rules"
-                    element={<PlaceholderPage title="Pricing Rules" />}
+                    element={<AdminPricingRulesPage />}
                 />
                 <Route
                     path="/admin/driver-documents"
-                    element={<PlaceholderPage title="Driver Document Review" />}
+                    element={<AdminDriverDocumentsPage />}
                 />
                 <Route
                     path="/admin/surge-zones"
-                    element={<PlaceholderPage title="Surge Zones" />}
+                    element={<AdminSurgeZonesPage />}
                 />
                 <Route
                     path="/admin/ml-models"

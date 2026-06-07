@@ -22,111 +22,11 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { LoadingState } from "@/common/LoadingState";
+import { ErrorState } from "@/common/ErrorState";
+import { useRides } from "@/hooks/rides/useRides";
+import { useDriverEarnings } from "@/hooks/driver/useDriverEarnings";
 
-const demoEarnings = {
-  today: {
-    label: "Today",
-    total_earnings: 5300,
-    gross_fare: 6120,
-    platform_fee: 820,
-    rides_count: 5,
-    online_hours: 6.5,
-    average_per_ride: 1060,
-    cash_collected: 5300,
-    wallet_payout: 0,
-    trend_percent: 12,
-  },
-  week: {
-    label: "This week",
-    total_earnings: 28650,
-    gross_fare: 33400,
-    platform_fee: 4750,
-    rides_count: 31,
-    online_hours: 38,
-    average_per_ride: 924,
-    cash_collected: 21400,
-    wallet_payout: 7250,
-    trend_percent: 8,
-  },
-  month: {
-    label: "This month",
-    total_earnings: 124800,
-    gross_fare: 146300,
-    platform_fee: 21500,
-    rides_count: 142,
-    online_hours: 168,
-    average_per_ride: 879,
-    cash_collected: 94400,
-    wallet_payout: 30400,
-    trend_percent: -3,
-  },
-};
-
-const weeklyBars = [
-  { day: "Mon", amount: 3600 },
-  { day: "Tue", amount: 4200 },
-  { day: "Wed", amount: 3900 },
-  { day: "Thu", amount: 5100 },
-  { day: "Fri", amount: 5300 },
-  { day: "Sat", amount: 3700 },
-  { day: "Sun", amount: 2850 },
-];
-
-const recentRideEarnings = [
-  {
-    id: "ride_123",
-    time: "4:58 PM",
-    route: "Gulberg → Johar Town",
-    fare: 760,
-    driver_earnings: 665,
-    payment_method: "Cash",
-    distance_km: 12.4,
-  },
-  {
-    id: "ride_122",
-    time: "3:10 PM",
-    route: "DHA → MM Alam Road",
-    fare: 920,
-    driver_earnings: 805,
-    payment_method: "Cash",
-    distance_km: 14.2,
-  },
-  {
-    id: "ride_121",
-    time: "1:35 PM",
-    route: "Model Town → Liberty",
-    fare: 540,
-    driver_earnings: 470,
-    payment_method: "Wallet",
-    distance_km: 8.6,
-  },
-  {
-    id: "ride_120",
-    time: "11:20 AM",
-    route: "Wapda Town → Emporium",
-    fare: 680,
-    driver_earnings: 595,
-    payment_method: "Cash",
-    distance_km: 9.8,
-  },
-];
-
-const payoutItems = [
-  {
-    id: "payout_001",
-    title: "Available balance",
-    amount: 7250,
-    status: "available",
-    description: "Ready for payout",
-  },
-  {
-    id: "payout_002",
-    title: "Pending clearance",
-    amount: 3040,
-    status: "pending",
-    description: "Processing wallet rides",
-  },
-];
 
 function EarningsHero({ stats }) {
   const isPositiveTrend = stats.trend_percent >= 0;
@@ -468,10 +368,164 @@ export default function DriverEarningsPage() {
   const navigate = useNavigate();
   const [activeRange, setActiveRange] = useState("today");
 
-  const stats = useMemo(() => demoEarnings[activeRange], [activeRange]);
+  const ridesQuery = useRides({ role: "driver" });
+  const driverRides = ridesQuery.data?.data || ridesQuery.data || [];
+
+  const dateParams = useMemo(() => {
+    const toDate = new Date();
+    const toStr = toDate.toISOString().split("T")[0];
+
+    if (activeRange === "today") {
+      return { period: "daily", from: toStr, to: toStr };
+    } else if (activeRange === "week") {
+      const fromDate = new Date();
+      fromDate.setDate(toDate.getDate() - 6);
+      const fromStr = fromDate.toISOString().split("T")[0];
+      return { period: "daily", from: fromStr, to: toStr };
+    } else {
+      const fromDate = new Date();
+      fromDate.setDate(toDate.getDate() - 29);
+      const fromStr = fromDate.toISOString().split("T")[0];
+      return { period: "daily", from: fromStr, to: toStr };
+    }
+  }, [activeRange]);
+
+  const earningsQuery = useDriverEarnings(dateParams);
+  const earningsData = earningsQuery.data;
+
+  const stats = useMemo(() => {
+    if (!earningsData) {
+      return {
+        label: activeRange === "today" ? "Today" : activeRange === "week" ? "This week" : "This month",
+        total_earnings: 0,
+        gross_fare: 0,
+        platform_fee: 0,
+        rides_count: 0,
+        online_hours: 0,
+        average_per_ride: 0,
+        cash_collected: 0,
+        wallet_payout: 0,
+        trend_percent: 0,
+      };
+    }
+
+    const summary = earningsData.summary || {};
+    const totalEarnings = summary.estimated_driver_earning || 0;
+    const grossFare = summary.gross_earnings || 0;
+    const platformFee = summary.estimated_platform_commission || 0;
+    const ridesCount = summary.total_rides || 0;
+    const averagePerRide = ridesCount > 0 ? Math.round(totalEarnings / ridesCount) : 0;
+
+    const completedRides = driverRides.filter((r) => {
+      if (r.status !== "completed") return false;
+      const dateVal = r.completed_at || r.updated_at;
+      if (!dateVal) return false;
+      const rideDate = new Date(dateVal);
+      const cutoff = new Date(dateParams.from + "T00:00:00Z");
+      const end = new Date(dateParams.to + "T23:59:59Z");
+      return rideDate >= cutoff && rideDate <= end;
+    });
+
+    const cashCollected = completedRides
+      .filter((r) => r.payment_method?.toLowerCase() === "cash" || !r.payment_method)
+      .reduce((sum, r) => sum + Math.round(Number(r.fare?.final_fare || 0) * 0.8), 0);
+
+    const walletPayout = totalEarnings - cashCollected;
+
+    return {
+      label: activeRange === "today" ? "Today" : activeRange === "week" ? "This week" : "This month",
+      total_earnings: totalEarnings,
+      gross_fare: grossFare,
+      platform_fee: platformFee,
+      rides_count: ridesCount,
+      online_hours: 0,
+      average_per_ride: averagePerRide,
+      cash_collected: cashCollected,
+      wallet_payout: walletPayout,
+      trend_percent: 0,
+    };
+  }, [earningsData, activeRange, driverRides, dateParams]);
+
+  const weeklyBars = useMemo(() => {
+    const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const dailyAmounts = {};
+    days.forEach((day) => { dailyAmounts[day] = 0; });
+
+    if (activeRange === "week" && earningsData?.items) {
+      earningsData.items.forEach((item) => {
+        const date = new Date(item.period_start);
+        const dayName = date.toLocaleDateString("en", { weekday: "short" });
+        if (dayName in dailyAmounts) {
+          dailyAmounts[dayName] += item.estimated_driver_earning;
+        }
+      });
+    } else {
+      const completedRides = driverRides.filter((r) => r.status === "completed");
+      const now = new Date();
+      completedRides.forEach((ride) => {
+        const dateVal = ride.completed_at || ride.updated_at;
+        if (!dateVal) return;
+        const rideDate = new Date(dateVal);
+        if (now.getTime() - rideDate.getTime() <= 7 * 24 * 60 * 60 * 1000) {
+          const dayName = rideDate.toLocaleDateString("en", { weekday: "short" });
+          if (dayName in dailyAmounts) {
+            const fareVal = Number(ride.fare?.final_fare || 0);
+            dailyAmounts[dayName] += Math.round(fareVal * 0.8);
+          }
+        }
+      });
+    }
+
+    return days.map((day) => ({
+      day,
+      amount: dailyAmounts[day],
+    }));
+  }, [earningsData, activeRange, driverRides]);
+
+  const recentRideEarnings = useMemo(() => {
+    const completedRides = driverRides.filter((r) => r.status === "completed");
+    return completedRides.slice(0, 5).map((ride) => {
+      const pickupAddress = ride.pickup?.address || "Pickup";
+      const dropoffAddress = ride.dropoff?.address || "Dropoff";
+      const fare = Number(ride.fare?.final_fare || 0);
+      const driverEarnings = Math.round(fare * 0.8);
+
+      let timeStr = "";
+      if (ride.completed_at) {
+        try {
+          timeStr = new Intl.DateTimeFormat("en", {
+            hour: "numeric",
+            minute: "2-digit",
+          }).format(new Date(ride.completed_at));
+        } catch (e) {}
+      }
+
+      return {
+        id: ride.id,
+        time: timeStr || "Just now",
+        route: `${pickupAddress} → ${dropoffAddress}`,
+        fare,
+        driver_earnings: driverEarnings,
+        payment_method: ride.payment_method || "Cash",
+        distance_km: ride.fare?.actual_distance_km || ride.fare?.estimated_distance_km || 0,
+      };
+    });
+  }, [driverRides]);
+
+  const payoutItems = useMemo(() => {
+    return [];
+  }, []);
 
   function handleViewRide(ride) {
     navigate(`/driver/rides/${ride.id}/summary`);
+  }
+
+  if (ridesQuery.isLoading || earningsQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <LoadingState label="Loading earnings data..." />
+      </main>
+    );
   }
 
   return (
@@ -533,34 +587,18 @@ export default function DriverEarningsPage() {
 
           <EarningsStatsGrid stats={stats} />
 
-          <Card className="rounded-[24px] border-[#E1E5EA] bg-[#F7F8FA] p-4 shadow-none">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white">
-                <CalendarDays className="h-5 w-5 text-[#008C78]" />
-              </div>
-
-              <div>
-                <p className="text-sm font-bold text-[#101820]">
-                  Earnings are UI-only
-                </p>
-                <p className="mt-1 text-sm leading-5 text-[#4B5563]">
-                  Later this screen will use real completed rides, payouts, and
-                  driver earning records.
-                </p>
-              </div>
-            </div>
-          </Card>
-
           <EarningsChartCard bars={weeklyBars} />
 
           <EarningsBreakdownCard stats={stats} />
 
-          <PayoutCard payouts={payoutItems} />
+          {payoutItems.length > 0 ? <PayoutCard payouts={payoutItems} /> : null}
 
-          <RecentRideEarningsCard
-            rides={recentRideEarnings}
-            onViewRide={handleViewRide}
-          />
+          {recentRideEarnings.length > 0 ? (
+            <RecentRideEarningsCard
+              rides={recentRideEarnings}
+              onViewRide={handleViewRide}
+            />
+          ) : null}
 
           <Button
             type="button"

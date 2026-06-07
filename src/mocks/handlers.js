@@ -767,7 +767,7 @@ export const handlers = [
     offer.decline_reason = body.decline_reason || null;
     offer.responded_at = nowIso();
 
-    return ok(offer, "Ride offer declined successfully");
+    return ok({ offer }, "Ride offer declined successfully");
   }),
 
   http.get(`${API}/drivers/me/earnings`, async ({ request }) => {
@@ -776,28 +776,67 @@ export const handlers = [
     if (response) return response;
 
     const driver = getCurrentDriver(user);
+    const url = new URL(request.url);
+    const period = url.searchParams.get("period") || "daily";
+    const fromStr = url.searchParams.get("from");
+    const toStr = url.searchParams.get("to");
+
     const completedRides = db.rides.filter(
       (ride) => ride.driver_id === driver.id && ride.status === "completed"
     );
-    const totalEarnings = completedRides.reduce(
-      (sum, ride) => sum + Number(ride.fare?.final_fare || 0),
-      0
-    );
+
+    const dailyData = {};
+    completedRides.forEach((ride) => {
+      const dateVal = ride.completed_at || ride.updated_at || new Date().toISOString();
+      const dateStr = dateVal.split("T")[0];
+      if (!dailyData[dateStr]) {
+        dailyData[dateStr] = {
+          gross: 0,
+          rides: 0,
+        };
+      }
+      const fare = Number(ride.fare?.final_fare || 0);
+      dailyData[dateStr].gross += fare;
+      dailyData[dateStr].rides += 1;
+    });
+
+    let startDate = fromStr ? new Date(fromStr) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    let endDate = toStr ? new Date(toStr) : new Date();
+
+    const items = [];
+    let current = new Date(startDate);
+    while (current <= endDate) {
+      const dateStr = current.toISOString().split("T")[0];
+      const dataForDay = dailyData[dateStr] || { gross: 0, rides: 0 };
+      
+      items.push({
+        period_start: dateStr,
+        period_end: dateStr,
+        completed_rides: dataForDay.rides,
+        gross_earnings: dataForDay.gross,
+        estimated_driver_earning: Math.round(dataForDay.gross * 0.8),
+        estimated_platform_commission: Math.round(dataForDay.gross * 0.2),
+      });
+
+      current.setDate(current.getDate() + 1);
+    }
+
+    const totalRides = items.reduce((sum, item) => sum + item.completed_rides, 0);
+    const grossEarnings = items.reduce((sum, item) => sum + item.gross_earnings, 0);
+    const estimatedDriverEarning = items.reduce((sum, item) => sum + item.estimated_driver_earning, 0);
+    const estimatedPlatformCommission = items.reduce((sum, item) => sum + item.estimated_platform_commission, 0);
 
     return ok(
       {
-        driver_id: driver.id,
+        period,
         currency: "PKR",
-        period: getSearchParam(request, "period", "week"),
-        total_earnings: totalEarnings || 18500,
-        total_rides: completedRides.length || 15,
-        average_earning_per_ride: completedRides.length ? Math.round(totalEarnings / completedRides.length) : 1233,
-        daily_breakdown: [
-          { date: "2026-05-20", earnings: 4200, rides: 3 },
-          { date: "2026-05-21", earnings: 5100, rides: 4 },
-          { date: "2026-05-22", earnings: 3900, rides: 3 },
-          { date: "2026-05-23", earnings: 5300, rides: 5 },
-        ],
+        summary: {
+          total_rides: totalRides,
+          gross_earnings: grossEarnings,
+          estimated_driver_earning: estimatedDriverEarning,
+          estimated_platform_commission: estimatedPlatformCommission,
+        },
+        items: items.filter(item => item.completed_rides > 0 || (fromStr && toStr)),
       },
       "Driver earnings fetched successfully"
     );
@@ -811,26 +850,40 @@ export const handlers = [
     const driver = getCurrentDriver(user);
     const ratings = db.ratings.filter((rating) => rating.driver_id === driver.id);
 
-    return ok(
-      {
-        average_rating: driver.average_rating,
-        total_ratings: ratings.length || 12,
-        ratings: ratings.length
-          ? ratings
-          : [
-              {
-                id: "rating_seed_001",
-                ride_id: "ride_seed_001",
-                rider_id: "rider_001",
-                driver_id: driver.id,
-                rating: 5,
-                comment: "Great driver",
-                created_at: "2026-05-23T13:00:00Z",
-              },
-            ],
-      },
-      "Driver ratings fetched successfully"
-    );
+    const data = ratings.length
+      ? ratings.map((rating) => {
+          const riderUser = db.users.find(u => u.id === rating.rider_id) || { name: "Rider", profile_photo_url: null };
+          return {
+            id: rating.id,
+            ride_id: rating.ride_id,
+            rider_id: rating.rider_id,
+            driver_id: rating.driver_id,
+            rating: rating.rating,
+            comment: rating.comment,
+            created_at: rating.created_at,
+            rider: {
+              name: riderUser.name,
+              profile_photo_url: riderUser.profile_photo_url,
+            },
+          };
+        })
+      : [
+          {
+            id: "rating_seed_001",
+            ride_id: "ride_seed_001",
+            rider_id: "rider_001",
+            driver_id: driver.id,
+            rating: 5,
+            comment: "Great driver",
+            created_at: "2026-05-23T13:00:00Z",
+            rider: {
+              name: "Ali Khan",
+              profile_photo_url: null,
+            },
+          },
+        ];
+
+    return ok(data, "Driver ratings fetched successfully");
   }),
 
   // Maps
@@ -1107,16 +1160,25 @@ export const handlers = [
     const ride = getRideById(params.ride_id);
     if (!ride) return fail("Ride not found", "NOT_FOUND", 404);
 
+    const body = await readJson(request);
+
     ride.status = "completed";
     ride.completed_at = nowIso();
     ride.updated_at = nowIso();
     if (ride.fare) {
-      ride.fare.actual_distance_km = 12.8;
-      ride.fare.actual_duration_min = 35;
-      ride.fare.actual_traffic_delay_min = 8;
-      ride.fare.final_ml_predicted_fare = 750;
-      ride.fare.final_formula_fare = 760;
-      ride.fare.final_fare = 760;
+      ride.fare.actual_distance_km = typeof body.actual_distance_km === "number" ? body.actual_distance_km : 12.8;
+      ride.fare.actual_duration_min = typeof body.actual_duration_min === "number" ? body.actual_duration_min : 35;
+      ride.fare.actual_traffic_delay_min = typeof body.actual_traffic_delay_min === "number" ? body.actual_traffic_delay_min : 8;
+      ride.fare.waiting_time_min = typeof body.waiting_time_min === "number" ? body.waiting_time_min : 0;
+      
+      const distFare = Math.round(ride.fare.actual_distance_km * 40);
+      const durFare = Math.round(ride.fare.actual_duration_min * 10);
+      const waitFare = Math.round(ride.fare.waiting_time_min * 5);
+      const total = 100 + distFare + durFare + waitFare;
+
+      ride.fare.final_ml_predicted_fare = total - 10;
+      ride.fare.final_formula_fare = total;
+      ride.fare.final_fare = total;
       ride.fare.finalized_at = nowIso();
     }
 
@@ -1326,7 +1388,7 @@ export const handlers = [
     };
 
     db.pricingRules.push(rule);
-    return created(rule, "Pricing rule created successfully");
+    return created({ pricing_rule: rule }, "Pricing rule created successfully");
   }),
 
   http.patch(`${API}/admin/pricing-rules/:pricing_rule_id`, async ({ request, params }) => {
@@ -1339,7 +1401,15 @@ export const handlers = [
 
     const body = await readJson(request);
     Object.assign(rule, body, { updated_at: nowIso() });
-    return ok(rule, "Pricing rule updated successfully");
+    return ok({ pricing_rule: rule }, "Pricing rule updated successfully");
+  }),
+
+  http.get(`${API}/admin/driver-documents`, async ({ request }) => {
+    await mockDelay();
+    const { response } = requireRole(request, "admin");
+    if (response) return response;
+
+    return ok(db.driverDocuments, "Driver documents fetched successfully");
   }),
 
   http.patch(`${API}/admin/driver-documents/:document_id/review`, async ({ request, params }) => {
@@ -1355,7 +1425,16 @@ export const handlers = [
     document.rejection_reason = body.rejection_reason || null;
     document.verified_at = document.status === "approved" ? nowIso() : null;
 
-    return ok(document, "Driver document reviewed successfully");
+    if (document.document_type === "vehicle_registration" && document.vehicle_id) {
+      const vehicle = db.vehicles.find((item) => item.id === document.vehicle_id);
+      if (vehicle) {
+        vehicle.verification_status = document.status;
+        vehicle.rejection_reason = document.rejection_reason;
+        vehicle.updated_at = nowIso();
+      }
+    }
+
+    return ok({ document }, "Driver document reviewed successfully");
   }),
 
   http.patch(`${API}/admin/drivers/:driver_id/approval`, async ({ request, params }) => {
@@ -1369,7 +1448,7 @@ export const handlers = [
     const body = await readJson(request);
     driver.approval_status = body.approval_status || "approved";
 
-    return ok(getDriverWithRelations(driver), "Driver approval updated successfully");
+    return ok({ driver: getDriverWithRelations(driver) }, "Driver approval updated successfully");
   }),
 
   http.post(`${API}/admin/surge-zones`, async ({ request }) => {
@@ -1400,7 +1479,7 @@ export const handlers = [
       zones: db.surgeZones.filter((item) => item.city === zone.city),
     });
 
-    return created(zone, "Surge zone created successfully");
+    return created({ surge_zone: zone }, "Surge zone created successfully");
   }),
 
   http.get(`${API}/admin/ml-models`, async ({ request }) => {

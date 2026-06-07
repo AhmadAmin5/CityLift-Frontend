@@ -1,15 +1,19 @@
 import { useEffect, useMemo } from "react";
-import { createSocket } from "@/socket/socket.mock-example";
+import { createSocket } from "@/socket/socket";
 import { getAccessToken } from "@/utils/tokenStorage";
 
 export function useRideSocket({ rideId, handlers = {}, enabled = true }) {
   const accessToken = getAccessToken();
   const stableHandlers = useMemo(() => handlers, [handlers]);
 
-  useEffect(() => {
-    if (!enabled || !accessToken) return undefined;
+  const socket = useMemo(() => {
+    if (!enabled || !accessToken) return null;
+    return createSocket(accessToken);
+  }, [accessToken, enabled]);
 
-    const socket = createSocket(accessToken);
+  useEffect(() => {
+    if (!socket) return undefined;
+
     const subscriptions = [
       ["ride:status:update", stableHandlers.onStatusUpdate],
       ["ride:live:update", stableHandlers.onLiveUpdate],
@@ -37,8 +41,9 @@ export function useRideSocket({ rideId, handlers = {}, enabled = true }) {
       subscriptions.forEach(([eventName, handler]) => {
         socket.off(eventName, handler);
       });
-
-      socket.disconnect();
     };
-  }, [accessToken, enabled, rideId, stableHandlers]);
+  }, [socket, rideId, stableHandlers]);
+
+  return socket;
 }
+

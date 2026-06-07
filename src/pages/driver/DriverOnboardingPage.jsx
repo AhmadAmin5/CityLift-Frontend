@@ -26,45 +26,13 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 
-const demoOnboarding = {
-  driver: {
-    name: "Ahmed Raza",
-    approval_status: "pending",
-  },
-  documents: [
-    {
-      id: "doc_cnic",
-      title: "CNIC",
-      description: "Upload front/back national identity document.",
-      document_type: "cnic",
-      status: "approved",
-      required: true,
-    },
-    {
-      id: "doc_license",
-      title: "Driving License",
-      description: "Upload valid driving license document.",
-      document_type: "license",
-      status: "pending",
-      required: true,
-    },
-    {
-      id: "doc_registration",
-      title: "Vehicle Registration",
-      description: "Required for the selected active vehicle.",
-      document_type: "vehicle_registration",
-      status: "missing",
-      required: true,
-    },
-  ],
-  vehicle: {
-    exists: true,
-    active: true,
-    verification_status: "pending",
-    label: "White Toyota Corolla",
-    plate_number: "LEA-1234",
-  },
-};
+import { useDriverProfile } from "@/hooks/driver/useDriverProfile";
+import { useDriverDocuments } from "@/hooks/driver/useDriverDocuments";
+import { useDriverVehicles } from "@/hooks/driver/useDriverVehicles";
+import { getDriverFromResponse } from "@/utils/apiShapes";
+import { getApiErrorMessage } from "@/api/client";
+import { LoadingState } from "@/common/LoadingState";
+import { ErrorState } from "@/common/ErrorState";
 
 function getStatusConfig(status) {
   if (status === "approved") {
@@ -413,33 +381,127 @@ function ApprovalTimeline({ approvalStatus }) {
 export default function DriverOnboardingPage() {
   const navigate = useNavigate();
 
+  const driverQuery = useDriverProfile();
+  const documentsQuery = useDriverDocuments();
+  const vehiclesQuery = useDriverVehicles();
+
+  const driver = getDriverFromResponse(driverQuery.data);
+  const documents = documentsQuery.data || [];
+  const vehicles = vehiclesQuery.data || [];
+
+  const activeVehicle = vehicles.find((v) => v.is_active) || vehicles[0] || null;
+  const cnicDoc = documents.find(
+    (d) => d.document_type === "cnic" && !d.vehicle_id
+  );
+  const licenseDoc = documents.find(
+    (d) => d.document_type === "license" && !d.vehicle_id
+  );
+  const vehicleRegDoc = activeVehicle
+    ? documents.find(
+        (d) =>
+          d.document_type === "vehicle_registration" &&
+          d.vehicle_id === activeVehicle.id
+      )
+    : null;
+
+  const mappedDocuments = useMemo(() => [
+    {
+      id: cnicDoc?.id || "doc_cnic",
+      title: "CNIC",
+      description: "Upload front/back national identity document.",
+      document_type: "cnic",
+      status: cnicDoc?.status || "missing",
+      required: true,
+    },
+    {
+      id: licenseDoc?.id || "doc_license",
+      title: "Driving License",
+      description: "Upload valid driving license document.",
+      document_type: "license",
+      status: licenseDoc?.status || "missing",
+      required: true,
+    },
+    {
+      id: vehicleRegDoc?.id || "doc_registration",
+      title: "Vehicle Registration",
+      description: "Required for the selected active vehicle.",
+      document_type: "vehicle_registration",
+      status: vehicleRegDoc?.status || "missing",
+      required: true,
+    },
+  ], [cnicDoc, licenseDoc, vehicleRegDoc]);
+
+  const mappedVehicle = useMemo(() => {
+    if (!activeVehicle) {
+      return {
+        exists: false,
+        active: false,
+        verification_status: "missing",
+        label: "",
+        plate_number: "",
+      };
+    }
+    const docStatus = vehicleRegDoc?.status || "missing";
+    const verificationStatus =
+      activeVehicle.verification_status === "approved" || docStatus === "approved"
+        ? "approved"
+        : activeVehicle.verification_status || "pending";
+
+    return {
+      exists: true,
+      active: activeVehicle.is_active,
+      verification_status: verificationStatus,
+      label: `${activeVehicle.color || ""} ${activeVehicle.make || ""} ${activeVehicle.model || ""}`.replace(/\s+/g, " ").trim() || "Vehicle",
+      plate_number: activeVehicle.plate_number || "",
+    };
+  }, [activeVehicle, vehicleRegDoc]);
+
+  const driverApprovalStatus = driver?.approval_status || "pending";
+
   const completedItems = useMemo(() => {
-    const approvedDocs = demoOnboarding.documents.filter(
+    const approvedDocs = mappedDocuments.filter(
       (document) => document.status === "approved"
     ).length;
 
     const vehicleReady =
-      demoOnboarding.vehicle.exists &&
-      demoOnboarding.vehicle.verification_status === "approved"
+      mappedVehicle.exists && mappedVehicle.verification_status === "approved"
         ? 1
         : 0;
 
-    const approvalReady =
-      demoOnboarding.driver.approval_status === "approved" ? 1 : 0;
+    const approvalReady = driverApprovalStatus === "approved" ? 1 : 0;
 
     return approvedDocs + vehicleReady + approvalReady;
-  }, []);
+  }, [mappedDocuments, mappedVehicle, driverApprovalStatus]);
 
-  const totalItems = demoOnboarding.documents.length + 2;
+  const totalItems = mappedDocuments.length + 2;
   const completionPercent = Math.round((completedItems / totalItems) * 100);
 
   const canGoHome =
-    demoOnboarding.driver.approval_status === "approved" &&
-    demoOnboarding.vehicle.exists &&
-    demoOnboarding.vehicle.verification_status === "approved" &&
-    demoOnboarding.documents.every(
-      (document) => document.status === "approved"
+    driverApprovalStatus === "approved" &&
+    mappedVehicle.exists &&
+    mappedVehicle.verification_status === "approved" &&
+    mappedDocuments.every((document) => document.status === "approved");
+
+  if (driverQuery.isLoading || documentsQuery.isLoading || vehiclesQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white flex items-center justify-center">
+        <LoadingState label="Loading onboarding progress..." />
+      </main>
     );
+  }
+
+  if (driverQuery.isError || documentsQuery.isError || vehiclesQuery.isError) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <ErrorState
+          message={
+            getApiErrorMessage(driverQuery.error || documentsQuery.error || vehiclesQuery.error) ||
+            "Could not load onboarding information."
+          }
+        />
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-white">
@@ -468,7 +530,7 @@ export default function DriverOnboardingPage() {
         <div className="mt-8 space-y-4">
           <OnboardingHero
             completionPercent={completionPercent}
-            approvalStatus={demoOnboarding.driver.approval_status}
+            approvalStatus={driverApprovalStatus}
           />
 
           {!canGoHome ? (
@@ -485,23 +547,23 @@ export default function DriverOnboardingPage() {
             title="Driver approval"
             description="Admin approval is needed before accepting rides."
             icon={ShieldCheck}
-            status={demoOnboarding.driver.approval_status}
+            status={driverApprovalStatus}
             actionLabel="View approval timeline"
             onClick={() => {}}
           />
 
           <DocumentChecklist
-            documents={demoOnboarding.documents}
+            documents={mappedDocuments}
             onNavigate={navigate}
           />
 
           <VehicleSetupCard
-            vehicle={demoOnboarding.vehicle}
+            vehicle={mappedVehicle}
             onNavigate={navigate}
           />
 
           <ApprovalTimeline
-            approvalStatus={demoOnboarding.driver.approval_status}
+            approvalStatus={driverApprovalStatus}
           />
 
           <Card className="rounded-[24px] border-[#E1E5EA] bg-[#F7F8FA] p-4 shadow-none">
@@ -549,7 +611,7 @@ export default function DriverOnboardingPage() {
             className="h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60] disabled:bg-gray-300 disabled:text-gray-500"
           >
             <Icon
-                                iconNode={steeringWheel} className="mr-2 h-5 w-5" />
+              iconNode={steeringWheel} className="mr-2 h-5 w-5" />
             {canGoHome ? "Go to driver home" : "Setup not complete"}
           </Button>
         </div>

@@ -45,13 +45,16 @@ import { useRideSocket } from "@/hooks/socket/useRideSocket";
 import {
   getLiveStateFromResponse,
   getRideFromResponse,
+  getRouteFromResponse,
 } from "@/utils/apiShapes";
 import { toLiveRideView } from "@/utils/rideUi";
+import { MapboxMap } from "@/components/map/MapboxMap";
+import { useMapConfig } from "@/hooks/maps/useMapConfig";
 
 const statusCopy = {
   accepted: {
     badge: "Driver assigned",
-    title: "Ahmed is on the way",
+    title: "Driver is on the way",
     subtitle: "Your driver is heading to the pickup point.",
     etaLabel: "Pickup ETA",
     primaryAction: "Driver arriving soon",
@@ -78,6 +81,24 @@ const statusCopy = {
     primaryAction: "View receipt",
   },
 };
+
+function getStatusTitle(status, driverName) {
+  const name = driverName || "Your driver";
+  if (status === "accepted") return `${name} is on the way`;
+  if (status === "arrived") return `${name} is here`;
+  if (status === "started") return "On your way";
+  if (status === "completed") return "You have arrived";
+  return "";
+}
+
+function getStatusSubtitle(status, driverName) {
+  const name = driverName || "Your driver";
+  if (status === "accepted") return `${name} is heading to the pickup point.`;
+  if (status === "arrived") return `Meet ${name} at the pickup location.`;
+  if (status === "started") return "Relax while we track your trip to the destination.";
+  if (status === "completed") return "Review your receipt and rate the driver.";
+  return "";
+}
 
 function LiveMapMock({ status }) {
   const isTripStarted = status === "started" || status === "completed";
@@ -329,7 +350,9 @@ export default function RiderLiveRidePage() {
   const [socketLiveState, setSocketLiveState] = useState(null);
   const rideQuery = useRide(ride_id);
   const liveQuery = useRideLive(ride_id);
-  useRideRoute(ride_id);
+  const mapConfigQuery = useMapConfig();
+  const routeQuery = useRideRoute(ride_id);
+  const route = getRouteFromResponse(routeQuery.data);
   const cancelRideMutation = useCancelRide(ride_id);
 
   const ride = getRideFromResponse(rideQuery.data);
@@ -348,19 +371,29 @@ export default function RiderLiveRidePage() {
     rideId: ride_id,
     handlers: {
       onStatusUpdate: (payload) => {
-        if (payload?.ride_id !== ride_id || !statusCopy[payload.status]) return;
-        setStatus(payload.status);
-        if (payload.status === "completed") {
+        console.log("[RiderLive] \ud83d\udd14 ride:status:update received:", payload);
+        const status = payload?.new_status || payload?.status;
+        if (payload?.ride_id !== ride_id || !statusCopy[status]) return;
+        setStatus(status);
+        if (status === "completed") {
           navigate(`/rider/ride/${ride_id}/receipt`);
         }
       },
       onLiveUpdate: (payload) => {
-        if (payload?.ride_id === ride_id) {
-          setSocketLiveState(payload);
-          if (statusCopy[payload.status]) setStatus(payload.status);
+        console.log("[RiderLive] 🔔 ride:live:update received:", payload);
+        const liveState = payload?.live_state || payload;
+        if (liveState?.ride_id === ride_id) {
+          setSocketLiveState(liveState);
+          if (statusCopy[liveState.status]) setStatus(liveState.status);
+          routeQuery.refetch();
         }
       },
+      onRouteUpdate: (payload) => {
+        console.log("[RiderLive] 🔔 ride:route:update received:", payload);
+        routeQuery.refetch();
+      },
       onCancelled: (payload) => {
+        console.log("[RiderLive] 🔔 ride:cancelled received:", payload);
         if (!payload?.ride_id || payload.ride_id === ride_id) {
           navigate("/rider/home", { replace: true });
         }
@@ -387,7 +420,7 @@ export default function RiderLiveRidePage() {
     }
   }
 
-  if (rideQuery.isLoading || liveQuery.isLoading) {
+  if (rideQuery.isLoading || liveQuery.isLoading || routeQuery.isLoading) {
     return (
       <main className="min-h-screen bg-white px-6 pt-24">
         <LoadingState label="Loading live ride..." />
@@ -407,7 +440,23 @@ export default function RiderLiveRidePage() {
     <main className="min-h-screen bg-white">
       <section className="mx-auto min-h-screen w-full max-w-[430px] bg-white">
         <div className="relative h-[45vh] min-h-[390px]">
-          <LiveMapMock status={normalizedStatus} />
+          <MapboxMap
+            pickup={rideView.pickup}
+            dropoff={rideView.dropoff}
+            route={route}
+            mapConfig={mapConfigQuery.data}
+            nearbyDrivers={
+              (liveState?.current_location?.latitude || liveState?.latitude)
+                ? [
+                    {
+                      driver_id: "driver",
+                      latitude: liveState.current_location?.latitude || liveState.latitude,
+                      longitude: liveState.current_location?.longitude || liveState.longitude,
+                    },
+                  ]
+                : []
+            }
+          />
 
           <header className="absolute left-0 right-0 top-0 z-40 px-5 pt-6">
             <div className="flex items-center justify-between">
@@ -470,10 +519,10 @@ export default function RiderLiveRidePage() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-[30px] font-bold leading-9 tracking-[-0.04em] text-[#101820]">
-                {statusCopy[normalizedStatus].title}
+                {getStatusTitle(normalizedStatus, rideView.driver?.name)}
               </h1>
               <p className="mt-2 text-base leading-6 text-[#4B5563]">
-                {statusCopy[normalizedStatus].subtitle}
+                {getStatusSubtitle(normalizedStatus, rideView.driver?.name)}
               </p>
             </div>
 

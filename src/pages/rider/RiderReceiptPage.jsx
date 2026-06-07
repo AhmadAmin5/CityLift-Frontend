@@ -29,44 +29,7 @@ import { useRideReceipt } from "@/hooks/rides/useRideReceipt";
 import { getReceiptFromResponse, getRideFromResponse } from "@/utils/apiShapes";
 import { toReceiptView } from "@/utils/rideUi";
 
-const demoReceipt = {
-  receipt_number: "RF-00042",
-  issued_at: "May 27, 2026 · 4:42 PM",
-  payment_method: "Cash",
-  payment_status: "Paid",
-  driver: {
-    name: "Ahmed Raza",
-    rating: 4.8,
-  },
-  vehicle: {
-    color: "White",
-    make: "Toyota",
-    model: "Corolla",
-    plate_number: "LEA-1234",
-  },
-  pickup: {
-    address: "Gulberg, Lahore",
-  },
-  dropoff: {
-    address: "Johar Town, Lahore",
-  },
-  trip: {
-    distance_km: 12.8,
-    duration_min: 35,
-    traffic_delay_min: 8,
-  },
-  fare: {
-    currency: "PKR",
-    final_fare: 760,
-    base_fare: 100,
-    distance_fare: 496,
-    duration_fare: 264,
-    waiting_fare: 0,
-    traffic_delay_fare: 28,
-    surge_amount: 72,
-    discount_amount: 200,
-  },
-};
+
 
 function ReceiptHero({ receipt }) {
   return (
@@ -224,7 +187,7 @@ function FareBreakdownCard({ receipt }) {
       warning: true,
     },
     {
-      label: "Demo discount",
+      label: "Discount",
       value: -receipt.fare.discount_amount,
       success: true,
     },

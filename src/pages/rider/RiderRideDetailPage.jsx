@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -25,72 +26,15 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 
-const demoRideDetail = {
-  id: "ride_001",
-  status: "completed",
-  requested_at: "May 27, 2026 · 4:05 PM",
-  completed_at: "May 27, 2026 · 4:42 PM",
-  ride_type: "standard",
-  pickup: {
-    address: "Gulberg, Lahore",
-  },
-  dropoff: {
-    address: "Johar Town, Lahore",
-  },
-  stops: [
-    {
-      id: "stop_001",
-      stop_order: 1,
-      stop_type: "pickup",
-      address: "Gulberg, Lahore",
-      arrived_at: "4:05 PM",
-    },
-    {
-      id: "stop_002",
-      stop_order: 2,
-      stop_type: "dropoff",
-      address: "Johar Town, Lahore",
-      arrived_at: "4:42 PM",
-    },
-  ],
-  driver: {
-    name: "Ahmed Raza",
-    initials: "AR",
-    rating: 4.8,
-    total_rides: 215,
-    phone: "+92 300 9876543",
-  },
-  vehicle: {
-    make: "Toyota",
-    model: "Corolla",
-    color: "White",
-    plate_number: "LEA-1234",
-    vehicle_type: "car",
-  },
-  fare: {
-    currency: "PKR",
-    final_fare: 760,
-    estimated_min_fare: 630,
-    estimated_max_fare: 770,
-    base_fare: 100,
-    distance_fare: 496,
-    duration_fare: 264,
-    traffic_delay_fare: 28,
-    surge_amount: 72,
-    payment_status: "paid",
-    payment_method: "Cash",
-  },
-  trip: {
-    distance_km: 12.8,
-    duration_min: 35,
-    traffic_delay_min: 8,
-  },
-  rating: {
-    submitted: true,
-    rating: 5,
-    comment: "Great driver, clean car, smooth ride.",
-  },
-};
+import { useRide } from "@/hooks/rides/useRide";
+import { useRideReceipt } from "@/hooks/rides/useRideReceipt";
+import { getRideFromResponse, getReceiptFromResponse } from "@/utils/apiShapes";
+import { MapboxMap } from "@/components/map/MapboxMap";
+import { useMapConfig } from "@/hooks/maps/useMapConfig";
+import { LoadingState } from "@/common/LoadingState";
+import { ErrorState } from "@/common/ErrorState";
+
+
 
 function getStatusConfig(status) {
   if (status === "completed") {
@@ -431,6 +375,215 @@ export default function RiderRideDetailPage() {
   const navigate = useNavigate();
   const { ride_id } = useParams();
 
+  const mapConfigQuery = useMapConfig();
+  const rideQuery = useRide(ride_id);
+  const rideData = getRideFromResponse(rideQuery.data);
+  const receiptQuery = useRideReceipt(ride_id, {
+    enabled: Boolean(ride_id) && rideData?.status === "completed",
+  });
+  const receiptData = getReceiptFromResponse(receiptQuery.data);
+
+  const mappedRide = useMemo(() => {
+    if (!rideData) return null;
+
+    const formatDateTime = (value) => {
+      if (!value) return "";
+      try {
+        return new Intl.DateTimeFormat("en", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        }).format(new Date(value));
+      } catch {
+        return "";
+      }
+    };
+
+    const formatDateTimeTimeOnly = (value) => {
+      if (!value) return "";
+      try {
+        return new Intl.DateTimeFormat("en", {
+          hour: "numeric",
+          minute: "2-digit",
+        }).format(new Date(value));
+      } catch {
+        return "";
+      }
+    };
+
+    const apiStops = rideData.stops || [];
+    const hasPickup = apiStops.some((s) => s.stop_type === "pickup");
+    const hasDropoff = apiStops.some((s) => s.stop_type === "dropoff");
+    let stops = [...apiStops];
+
+    if (!hasPickup && rideData.pickup) {
+      stops.unshift({
+        id: "pickup",
+        stop_order: 1,
+        stop_type: "pickup",
+        address: rideData.pickup.address,
+        arrived_at: rideData.started_at || rideData.requested_at,
+      });
+    }
+
+    if (!hasDropoff && rideData.dropoff) {
+      stops.push({
+        id: "dropoff",
+        stop_order: 9999,
+        stop_type: "dropoff",
+        address: rideData.dropoff.address,
+        arrived_at: rideData.completed_at,
+      });
+    }
+
+    stops = stops
+      .map((s) => ({
+        id: s.id || s.stop_type,
+        stop_order: s.stop_order,
+        stop_type: s.stop_type,
+        address: s.address || "Address",
+        arrived_at: s.arrived_at ? formatDateTimeTimeOnly(s.arrived_at) : "",
+      }))
+      .sort((a, b) => a.stop_order - b.stop_order);
+
+    const driver = rideData.driver
+      ? {
+          name: rideData.driver.name || "Ahmed Raza",
+          initials: rideData.driver.name
+            ? rideData.driver.name
+                .split(" ")
+                .filter(Boolean)
+                .slice(0, 2)
+                .map((part) => part[0]?.toUpperCase())
+                .join("")
+            : "DR",
+          rating: rideData.driver.average_rating || 4.8,
+          total_rides: rideData.driver.total_rides || 0,
+          phone: rideData.driver.phone || "+92 300 9876543",
+        }
+      : null;
+
+    const vehicle = rideData.vehicle
+      ? {
+          make: rideData.vehicle.make || "Toyota",
+          model: rideData.vehicle.model || "Corolla",
+          color: rideData.vehicle.color || "White",
+          plate_number: rideData.vehicle.plate_number || "LEA-1234",
+          vehicle_type: rideData.vehicle.vehicle_type || "car",
+        }
+      : null;
+
+    const fareObj = rideData.fare || {};
+    const breakdown = receiptData?.fare_breakdown || receiptData || {};
+
+    const fare = {
+      currency: fareObj.currency || "PKR",
+      final_fare:
+        breakdown.final_fare ||
+        fareObj.final_fare ||
+        fareObj.estimated_min_fare ||
+        0,
+      estimated_min_fare: fareObj.estimated_min_fare || 0,
+      estimated_max_fare: fareObj.estimated_max_fare || 0,
+      base_fare: breakdown.base_fare || fareObj.base_fare || 100,
+      distance_fare:
+        breakdown.distance_fare ||
+        (fareObj.actual_distance_km
+          ? Math.round(fareObj.actual_distance_km * (fareObj.per_km_rate || 40))
+          : 0),
+      duration_fare:
+        breakdown.duration_fare ||
+        (fareObj.actual_duration_min
+          ? Math.round(fareObj.actual_duration_min * (fareObj.per_min_rate || 8))
+          : 0),
+      traffic_delay_fare:
+        breakdown.traffic_delay_fare ||
+        (fareObj.actual_traffic_delay_min
+          ? Math.round(fareObj.actual_traffic_delay_min * (fareObj.traffic_delay_per_min_rate || 4))
+          : 0),
+      surge_amount:
+        breakdown.surge_amount ||
+        (breakdown.final_fare
+          ? Math.round(breakdown.final_fare * 0.1)
+          : 0),
+      payment_status:
+        receiptData?.payment_status ||
+        (rideData.status === "completed" ? "paid" : "pending"),
+      payment_method: receiptData?.payment_method || "Cash",
+    };
+
+    const trip = {
+      distance_km:
+        receiptData?.actual_distance_km ||
+        fareObj.actual_distance_km ||
+        fareObj.estimated_distance_km ||
+        0,
+      duration_min:
+        receiptData?.actual_duration_min ||
+        fareObj.actual_duration_min ||
+        fareObj.estimated_duration_min ||
+        0,
+      traffic_delay_min:
+        fareObj.actual_traffic_delay_min ||
+        fareObj.estimated_traffic_delay_min ||
+        0,
+    };
+
+    const rating = rideData.rating || {
+      submitted: false,
+      rating: 0,
+      comment: "",
+    };
+
+    return {
+      id: rideData.id,
+      status: rideData.status,
+      requested_at: formatDateTime(rideData.requested_at || rideData.created_at),
+      completed_at: formatDateTime(rideData.completed_at),
+      ride_type: rideData.ride_type,
+      pickup: rideData.pickup || { address: "Pickup" },
+      dropoff: rideData.dropoff || { address: "Dropoff" },
+      stops,
+      driver,
+      vehicle,
+      fare,
+      trip,
+      rating,
+    };
+  }, [rideData, receiptData]);
+
+  if (rideQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <LoadingState label="Loading ride details..." />
+      </main>
+    );
+  }
+
+  if (rideQuery.isError || !mappedRide) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <ErrorState message="Ride not found. Return home and try again." />
+      </main>
+    );
+  }
+
+  const requestedAtTimeOnly = rideData.requested_at
+    ? new Intl.DateTimeFormat("en", {
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(new Date(rideData.requested_at))
+    : "";
+
+  const completedAtTimeOnly = rideData.completed_at
+    ? new Intl.DateTimeFormat("en", {
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(new Date(rideData.completed_at))
+    : "";
+
   return (
     <main className="min-h-screen bg-white">
       <section className="mx-auto min-h-screen w-full max-w-[430px] bg-white px-6 pb-8 pt-8">
@@ -461,43 +614,61 @@ export default function RiderRideDetailPage() {
         </header>
 
         <div className="mt-8 space-y-4">
-          <RideOverviewCard ride={demoRideDetail} />
+          <RideOverviewCard ride={mappedRide} />
 
-          <DetailMapMock />
+          <Card className="overflow-hidden rounded-[28px] border-[#E1E5EA] bg-[#EAF2F0] p-0 shadow-sm">
+            <div className="relative h-[220px]">
+              <MapboxMap
+                pickup={mappedRide?.pickup}
+                dropoff={mappedRide?.dropoff}
+                mapConfig={mapConfigQuery.data}
+                className="relative h-full w-full"
+              />
+            </div>
+          </Card>
 
           <Card className="rounded-[24px] border-[#E1E5EA] bg-white p-4 shadow-sm">
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-[16px] bg-[#F7F8FA] p-3">
                 <CalendarClock className="h-4 w-4 text-[#008C78]" />
                 <p className="mt-2 text-xs text-[#8A9099]">Requested</p>
-                <p className="mt-1 text-sm font-bold text-[#101820]">
-                  4:05 PM
-                </p>
+                {requestedAtTimeOnly ? (
+                  <p className="mt-1 text-sm font-bold text-[#101820]">
+                    {requestedAtTimeOnly}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-sm font-bold text-[#101820]">-</p>
+                )}
               </div>
 
               <div className="rounded-[16px] bg-[#F7F8FA] p-3">
                 <Timer className="h-4 w-4 text-[#008C78]" />
                 <p className="mt-2 text-xs text-[#8A9099]">Completed</p>
-                <p className="mt-1 text-sm font-bold text-[#101820]">
-                  4:42 PM
-                </p>
+                {completedAtTimeOnly ? (
+                  <p className="mt-1 text-sm font-bold text-[#101820]">
+                    {completedAtTimeOnly}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-sm font-bold text-[#101820]">-</p>
+                )}
               </div>
             </div>
           </Card>
 
-          <RouteCard ride={demoRideDetail} />
-          <DriverCard ride={demoRideDetail} />
-          <FareDetailCard ride={demoRideDetail} />
-          <RatingSummaryCard ride={demoRideDetail} />
+          <RouteCard ride={mappedRide} />
+          {mappedRide.driver ? <DriverCard ride={mappedRide} /> : null}
+          <FareDetailCard ride={mappedRide} />
+          <RatingSummaryCard ride={mappedRide} />
 
           <div className="grid grid-cols-2 gap-3">
             <Button
               type="button"
               variant="outline"
+              disabled={mappedRide.status !== "completed"}
               onClick={() =>
-                navigate(`/rider/ride/${ride_id || demoRideDetail.id}/receipt`)
+                navigate(`/rider/ride/${ride_id}/receipt`)
               }
-              className="h-[52px] rounded-[14px] border-[#E1E5EA] bg-white text-base font-semibold text-[#101820]"
+              className="h-[52px] rounded-[14px] border-[#E1E5EA] bg-white text-base font-semibold text-[#101820] disabled:opacity-50"
             >
               <ReceiptText className="mr-2 h-5 w-5 text-[#008C78]" />
               Receipt

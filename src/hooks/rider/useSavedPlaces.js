@@ -7,10 +7,11 @@ import {
 } from "@/api/riders.api";
 import { queryKeys } from "@/query/queryKeys";
 
-export function useSavedPlaces() {
+export function useSavedPlaces(options = {}) {
   return useQuery({
     queryKey: queryKeys.savedPlaces,
     queryFn: getSavedPlaces,
+    ...options,
   });
 }
 

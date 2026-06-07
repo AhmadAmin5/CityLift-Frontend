@@ -140,35 +140,29 @@ function buildCreateRidePayload({
         recurrence_rule: getRecurrenceRule(rideType || "standard"),
         rider_note_to_driver: riderNote || null,
         vehicle_type: vehicleType || "car",
-        stops: [
-            {
-                stop_order: 1,
-                stop_type: "pickup",
-                latitude: pickup.latitude,
-                longitude: pickup.longitude,
-                address: pickup.address,
-                provider: pickup.provider || "mapbox",
-                provider_place_id: pickup.provider_place_id || null,
-            },
-            ...validStops.map((stop, index) => ({
-                stop_order: index + 2,
-                stop_type: "intermediate",
-                latitude: stop.latitude,
-                longitude: stop.longitude,
-                address: stop.address,
-                provider: stop.provider || "mapbox",
-                provider_place_id: stop.provider_place_id || null,
-            })),
-            {
-                stop_order: validStops.length + 2,
-                stop_type: "dropoff",
-                latitude: dropoff.latitude,
-                longitude: dropoff.longitude,
-                address: dropoff.address,
-                provider: dropoff.provider || "mapbox",
-                provider_place_id: dropoff.provider_place_id || null,
-            },
-        ],
+        pickup: {
+            latitude: pickup.latitude,
+            longitude: pickup.longitude,
+            address: pickup.address,
+            provider: pickup.provider || "mapbox",
+            provider_place_id: pickup.provider_place_id || null,
+        },
+        dropoff: {
+            latitude: dropoff.latitude,
+            longitude: dropoff.longitude,
+            address: dropoff.address,
+            provider: dropoff.provider || "mapbox",
+            provider_place_id: dropoff.provider_place_id || null,
+        },
+        stops: validStops.map((stop, index) => ({
+            stop_order: index + 2,
+            stop_type: "intermediate",
+            latitude: stop.latitude,
+            longitude: stop.longitude,
+            address: stop.address,
+            provider: stop.provider || "mapbox",
+            provider_place_id: stop.provider_place_id || null,
+        })),
     };
 }
 

@@ -87,13 +87,18 @@ function toVehicleView(vehicle, documents = []) {
     vehicle.id
   );
 
+  const docStatus = registrationDocument?.status || "missing";
+  const verificationStatus =
+    vehicle.verification_status === "approved" || docStatus === "approved"
+      ? "approved"
+      : vehicle.verification_status || "pending";
+
   return {
-    documents_status: "missing",
     ...vehicle,
     year: String(vehicle.year || ""),
     vehicle_type: vehicle.vehicle_type || "car",
-    verification_status: vehicle.verification_status || "pending",
-    documents_status: registrationDocument?.status || "missing",
+    verification_status: verificationStatus,
+    documents_status: docStatus,
     documents_rejection_reason: registrationDocument?.rejection_reason || null,
   };
 }
@@ -649,12 +654,17 @@ export default function DriverVehiclesPage() {
   }
 
   async function saveVehicle() {
+    if (!draft.make?.trim() || !draft.model?.trim() || !draft.plate_number?.trim() || !draft.color?.trim() || !draft.year) {
+      toast.error("Please fill in all vehicle fields");
+      return;
+    }
+
     const safeVehicle = {
-      make: draft.make.trim() || "Toyota",
-      model: draft.model.trim() || "Corolla",
-      year: Number(draft.year || 2020),
-      plate_number: draft.plate_number.trim() || "LEA-0000",
-      color: draft.color.trim() || "White",
+      make: draft.make.trim(),
+      model: draft.model.trim(),
+      year: Number(draft.year),
+      plate_number: draft.plate_number.trim(),
+      color: draft.color.trim(),
       vehicle_type: draft.vehicle_type || "car",
     };
 

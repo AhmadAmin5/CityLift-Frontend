@@ -51,29 +51,12 @@ import { getApiErrorMessage } from "@/api/client";
 import { useMe } from "@/hooks/auth/useMe";
 import { useDriverProfile } from "@/hooks/driver/useDriverProfile";
 import { useRiderProfile } from "@/hooks/rider/useRiderProfile";
+import { useSavedPlaces } from "@/hooks/rider/useSavedPlaces";
 import {
   useLogout,
   useUpdateProfile,
   useUploadProfilePhoto,
 } from "@/hooks/shared/useProfileActions";
-
-const demoProfile = {
-  id: "user_001",
-  name: "Ali Khan",
-  initials: "AK",
-  email: "ali@example.com",
-  phone: "+92 300 1234567",
-  role: "rider",
-  profile_photo_url: null,
-  email_verified_at: "2026-05-23T10:00:00Z",
-  phone_verified_at: "2026-05-23T10:01:00Z",
-  member_since: "May 2026",
-  stats: {
-    total_rides: 18,
-    average_rating: 5.0,
-    saved_places: 4,
-  },
-};
 
 const settingsItems = [
   {
@@ -143,7 +126,7 @@ function getInitials(name) {
 }
 
 function formatMemberSince(timestamp) {
-  if (!timestamp) return "May 2026";
+  if (!timestamp) return "—";
 
   try {
     return new Intl.DateTimeFormat("en", {
@@ -151,27 +134,29 @@ function formatMemberSince(timestamp) {
       year: "numeric",
     }).format(new Date(timestamp));
   } catch {
-    return "May 2026";
+    return "—";
   }
 }
 
 function makeProfileView({ user, rider, driver, savedPlaceCount }) {
   const roleProfile = user?.role === "driver" ? driver : rider;
-  const name = user?.name || demoProfile.name;
+  const name = user?.name || "";
 
   return {
-    ...demoProfile,
-    ...user,
+    id: user?.id || "",
     name,
     initials: getInitials(name),
-    role: user?.role || demoProfile.role,
+    email: user?.email || "",
+    phone: user?.phone || "",
+    role: user?.role || "rider",
+    profile_photo_url: user?.profile_photo_url || null,
+    email_verified_at: user?.email_verified_at || null,
+    phone_verified_at: user?.phone_verified_at || null,
     member_since: formatMemberSince(user?.created_at),
     stats: {
-      total_rides:
-        roleProfile?.total_rides ?? demoProfile.stats.total_rides,
-      average_rating:
-        roleProfile?.average_rating ?? demoProfile.stats.average_rating,
-      saved_places: savedPlaceCount ?? demoProfile.stats.saved_places,
+      total_rides: roleProfile?.total_rides ?? 0,
+      average_rating: roleProfile?.average_rating ?? 0,
+      saved_places: user?.role === "rider" ? (savedPlaceCount ?? 0) : 0,
     },
   };
 }
@@ -517,9 +502,18 @@ export default function ProfilePage() {
   const updateProfileMutation = useUpdateProfile();
   const uploadPhotoMutation = useUploadProfilePhoto();
   const logoutMutation = useLogout();
+  const savedPlacesQuery = useSavedPlaces({
+    enabled: user?.role === "rider",
+  });
+  const savedPlaceCount = savedPlacesQuery.data?.length || 0;
+
   const photoInputRef = useRef(null);
 
-  const [profileDraft, setProfileDraft] = useState(demoProfile);
+  const [profileDraft, setProfileDraft] = useState({
+    name: "",
+    email: "",
+    phone: "",
+  });
   const [editOpen, setEditOpen] = useState(false);
   const [selectedSettingsItem, setSelectedSettingsItem] = useState(null);
   const [logoutOpen, setLogoutOpen] = useState(false);
@@ -532,8 +526,9 @@ export default function ProfilePage() {
         user,
         rider,
         driver,
+        savedPlaceCount,
       }),
-    [user, rider, driver]
+    [user, rider, driver, savedPlaceCount]
   );
   const roleConfig = useMemo(() => getRoleConfig(profile.role), [profile.role]);
 

@@ -62,6 +62,8 @@ import {
   normalizeLocation,
 } from "@/utils/locationUtils";
 import { toast } from "sonner";
+import { MapboxMap } from "@/components/map/MapboxMap";
+import { useMapConfig } from "@/hooks/maps/useMapConfig";
 
 const emptyDraft = {
   id: null,
@@ -154,6 +156,8 @@ function getPlaceTypeConfig(placeType) {
 }
 
 function MiniMapPreview({ place, compact = false }) {
+  const mapConfigQuery = useMapConfig();
+
   return (
     <div
       className={
@@ -162,21 +166,15 @@ function MiniMapPreview({ place, compact = false }) {
           : "relative h-[210px] overflow-hidden rounded-[24px] bg-[#EAF2F0]"
       }
     >
-      <div className="absolute inset-0 opacity-70">
-        <div className="absolute left-[-22%] top-6 h-24 w-[145%] rotate-[-12deg] rounded-full border-[14px] border-white/80" />
-        <div className="absolute left-[-12%] top-24 h-20 w-[125%] rotate-[18deg] rounded-full border-[12px] border-white/70" />
-        <div className="absolute bottom-4 left-[-18%] h-20 w-[135%] rotate-[-4deg] rounded-full border-[10px] border-white/70" />
+      <div className="absolute inset-0 h-full w-full">
+        <MapboxMap
+          pickup={place}
+          mapConfig={mapConfigQuery.data}
+          className="relative h-full w-full"
+        />
       </div>
 
-      <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-full">
-        <div className="absolute inset-0 h-14 w-14 animate-ping rounded-full bg-[#008C78]/15" />
-        <div className="relative flex h-14 w-14 items-center justify-center rounded-full bg-[#008C78] text-white shadow-card">
-          <MapPin className="h-7 w-7" />
-        </div>
-        <div className="mx-auto mt-1 h-2 w-2 rounded-full bg-[#008C78]" />
-      </div>
-
-      <div className="absolute bottom-3 left-3 right-3 rounded-[18px] border border-white/70 bg-white/95 p-3 shadow-soft backdrop-blur">
+      <div className="absolute bottom-3 left-3 right-3 z-10 rounded-[18px] border border-white/70 bg-white/95 p-3 shadow-soft backdrop-blur">
         <p className="truncate text-sm font-bold text-[#101820]">
           {place?.address || "Select a location"}
         </p>

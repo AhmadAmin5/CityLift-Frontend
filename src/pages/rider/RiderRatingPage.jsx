@@ -27,14 +27,7 @@ import { useSubmitRideRating } from "@/hooks/rides/useRideActions";
 import { getRideFromResponse } from "@/utils/apiShapes";
 import { toRatingDriverView } from "@/utils/rideUi";
 
-const demoDriver = {
-  name: "Ahmed Raza",
-  initials: "AR",
-  rating: 4.8,
-  total_rides: 215,
-  vehicle: "White Toyota Corolla",
-  plate_number: "LEA-1234",
-};
+
 
 const feedbackOptions = [
   "Safe driving",

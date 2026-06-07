@@ -3583,6 +3583,39 @@ Useful for demo setup. Real system may calculate these automatically.
 
 ---
 
+### 16.7 List Driver Documents
+
+```http
+GET /admin/driver-documents
+```
+
+Protected admin endpoint.
+
+#### Response 200
+
+```json
+{
+  "success": true,
+  "message": "Driver documents fetched successfully",
+  "data": [
+    {
+      "id": "document_uuid",
+      "driver_id": "driver_uuid",
+      "vehicle_id": null,
+      "document_type": "cnic",
+      "file_url": "https://example.com/uploads/cnic.jpg",
+      "status": "pending",
+      "rejection_reason": null,
+      "uploaded_at": "2026-05-23T10:00:00Z",
+      "verified_at": null
+    }
+  ],
+  "meta": null
+}
+```
+
+---
+
 ## 17. ML APIs
 
 ML can be implemented as an internal service or simple JavaScript/Python call. These endpoints are optional for frontend but useful for demo/admin screens.

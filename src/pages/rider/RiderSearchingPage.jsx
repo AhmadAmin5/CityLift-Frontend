@@ -37,6 +37,8 @@ import { useRide } from "@/hooks/rides/useRide";
 import { useRideSocket } from "@/hooks/socket/useRideSocket";
 import { getRideFromResponse } from "@/utils/apiShapes";
 import { toSearchRideView } from "@/utils/rideUi";
+import { MapboxMap } from "@/components/map/MapboxMap";
+import { useMapConfig } from "@/hooks/maps/useMapConfig";
 
 const searchSteps = [
   {
@@ -256,6 +258,7 @@ export default function RiderSearchingPage() {
   const { ride_id } = useParams();
   const [showHelp, setShowHelp] = useState(false);
   const rideQuery = useRide(ride_id);
+  const mapConfigQuery = useMapConfig();
   const cancelRideMutation = useCancelRide(ride_id);
 
   const ride = getRideFromResponse(rideQuery.data);
@@ -265,15 +268,18 @@ export default function RiderSearchingPage() {
     rideId: ride_id,
     handlers: {
       onStatusUpdate: (payload) => {
+        console.log("[RiderSearching] \ud83d\udd14 ride:status:update received:", payload);
         if (payload?.ride_id !== ride_id) return;
-        if (payload.status === "accepted" || payload.status === "driver_assigned") {
+        const status = payload.new_status || payload.status;
+        if (status === "accepted" || status === "driver_assigned") {
           navigate(`/rider/ride/${ride_id}/live`, { replace: true });
         }
-        if (payload.status === "cancelled") {
+        if (status === "cancelled") {
           navigate("/rider/home", { replace: true });
         }
       },
       onCancelled: (payload) => {
+        console.log("[RiderSearching] \ud83d\udd14 ride:cancelled received:", payload);
         if (!payload?.ride_id || payload.ride_id === ride_id) {
           navigate("/rider/home", { replace: true });
         }
@@ -311,7 +317,11 @@ export default function RiderSearchingPage() {
     <main className="min-h-screen bg-white">
       <section className="mx-auto min-h-screen w-full max-w-[430px] bg-white">
         <div className="relative h-[44vh] min-h-[360px]">
-          <SearchingMapMock />
+          <MapboxMap
+            pickup={rideView.pickup}
+            dropoff={rideView.dropoff}
+            mapConfig={mapConfigQuery.data}
+          />
 
           <header className="absolute left-0 right-0 top-0 z-40 px-5 pt-6">
             <div className="flex items-center justify-between">

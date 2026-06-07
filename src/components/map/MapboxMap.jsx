@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
-import { Car, MapPin, Navigation } from "lucide-react";
+import { Car, LocateFixed, MapPin, Navigation } from "lucide-react";
+import { PlatformGeolocation } from "@/utils/geolocation";
+import { toast } from "sonner";
 import {
     getRouteCoordinates,
     isRealMapboxToken,
@@ -43,7 +45,47 @@ function MockMapFallback({
     isMapPickerActive = false,
     onPickupChange,
     onLocationChange,
+    className = "",
 }) {
+    const [isLocating, setIsLocating] = useState(false);
+
+    async function handleLocate() {
+        setIsLocating(true);
+        try {
+            const permissionStatus = await PlatformGeolocation.checkPermissions();
+            if (permissionStatus.location !== "granted") {
+                const requestStatus = await PlatformGeolocation.requestPermissions();
+                if (requestStatus.location !== "granted") {
+                    toast.error("Location permission denied");
+                    return;
+                }
+            }
+
+            const position = await PlatformGeolocation.getCurrentPosition({
+                enableHighAccuracy: true,
+                timeout: 10000,
+            });
+
+            const coords = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+            };
+
+            if (onLocationChange) {
+                onLocationChange(locationSelectionTarget || "pickup", coords);
+            } else if (onPickupChange) {
+                onPickupChange(coords);
+            }
+
+            toast.success("Location fetched successfully");
+        } catch (error) {
+            console.error("Mock map locate error:", error);
+            toast.error("Could not fetch current location");
+        } finally {
+            setIsLocating(false);
+        }
+    }
+
     function selectLocation(location) {
         if (onLocationChange) {
             onLocationChange(locationSelectionTarget, location);
@@ -69,9 +111,9 @@ function MockMapFallback({
     return (
         <div
             className={
-                isMapPickerActive
+                className || (isMapPickerActive
                     ? "relative h-full min-h-[470px] cursor-crosshair overflow-hidden rounded-b-[32px] bg-[#EAF2F0] ring-4 ring-[#008C78]/10"
-                    : "relative h-full min-h-[470px] overflow-hidden rounded-b-[32px] bg-[#EAF2F0]"
+                    : "relative h-full min-h-[470px] overflow-hidden rounded-b-[32px] bg-[#EAF2F0]")
             }
             onClick={handleMapClick}
             role="button"
@@ -138,6 +180,23 @@ function MockMapFallback({
                     <div className="mx-auto mt-1 h-2 w-2 rounded-full bg-[#101820]" />
                 </div>
             ) : null}
+
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    handleLocate();
+                }}
+                className="absolute bottom-16 right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-white/90 backdrop-blur-sm shadow-card text-[#008C78] hover:bg-white active:scale-95 transition-all duration-200 border border-slate-200/50"
+                disabled={isLocating}
+                aria-label="Locate me"
+            >
+                {isLocating ? (
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#008C78] border-t-transparent" />
+                ) : (
+                    <LocateFixed className="h-5 w-5" />
+                )}
+            </button>
         </div>
     );
 }
@@ -153,6 +212,7 @@ export function MapboxMap({
     isMapPickerActive = false,
     onPickupChange,
     onLocationChange,
+    className = "",
 }) {
     const mapContainerRef = useRef(null);
     const mapRef = useRef(null);
@@ -165,8 +225,62 @@ export function MapboxMap({
     const onPickupChangeRef = useRef(onPickupChange);
 
     const [mapError, setMapError] = useState(null);
+    const [isLocating, setIsLocating] = useState(false);
 
-    const token = mapConfig?.mapbox_public_token || mapConfig?.public_token;
+    async function handleLocateUser() {
+        setIsLocating(true);
+        try {
+            const permissionStatus = await PlatformGeolocation.checkPermissions();
+            if (permissionStatus.location !== "granted") {
+                const requestStatus = await PlatformGeolocation.requestPermissions();
+                if (requestStatus.location !== "granted") {
+                    toast.error("Location permission denied");
+                    return;
+                }
+            }
+
+            const position = await PlatformGeolocation.getCurrentPosition({
+                enableHighAccuracy: true,
+                timeout: 10000,
+            });
+
+            const coords = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+            };
+
+            if (mapRef.current) {
+                mapRef.current.flyTo({
+                    center: [coords.longitude, coords.latitude],
+                    zoom: 15,
+                    essential: true,
+                    duration: 800,
+                });
+            }
+
+            if (onLocationChangeRef.current) {
+                onLocationChangeRef.current(
+                    locationSelectionTargetRef.current || "pickup",
+                    coords
+                );
+            } else if (onPickupChangeRef.current) {
+                onPickupChangeRef.current?.(coords);
+            }
+
+            toast.success("Location fetched successfully");
+        } catch (error) {
+            console.error("Map locate error:", error);
+            toast.error("Could not fetch current location");
+        } finally {
+            setIsLocating(false);
+        }
+    }
+
+    const token =
+        mapConfig?.mapbox_public_token ||
+        mapConfig?.public_token ||
+        import.meta.env.VITE_MAPBOX_PUBLIC_TOKEN ||
+        import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
     const hasRealToken = isRealMapboxToken(token);
 
     const center = useMemo(() => {
@@ -315,7 +429,10 @@ export function MapboxMap({
     useEffect(() => {
         if (!mapRef.current || !pickup) return;
 
-        const lngLat = [Number(pickup.longitude), Number(pickup.latitude)];
+        const lng = Number(pickup.longitude);
+        const lat = Number(pickup.latitude);
+        if (isNaN(lng) || isNaN(lat)) return;
+        const lngLat = [lng, lat];
 
         if (!pickupMarkerRef.current) {
             pickupMarkerRef.current = new mapboxgl.Marker({
@@ -355,7 +472,10 @@ export function MapboxMap({
             return;
         }
 
-        const lngLat = [Number(dropoff.longitude), Number(dropoff.latitude)];
+        const lng = Number(dropoff.longitude);
+        const lat = Number(dropoff.latitude);
+        if (isNaN(lng) || isNaN(lat)) return;
+        const lngLat = [lng, lat];
 
         if (!dropoffMarkerRef.current) {
             dropoffMarkerRef.current = new mapboxgl.Marker({
@@ -387,12 +507,14 @@ export function MapboxMap({
         driverMarkersRef.current = [];
 
         nearbyDrivers.forEach((driver) => {
-            if (!driver.longitude || !driver.latitude) return;
+            const dLng = Number(driver.longitude);
+            const dLat = Number(driver.latitude);
+            if (!dLng || !dLat || isNaN(dLng) || isNaN(dLat)) return;
 
             const marker = new mapboxgl.Marker({
                 element: makeDriverMarkerElement(),
             })
-                .setLngLat([Number(driver.longitude), Number(driver.latitude)])
+                .setLngLat([dLng, dLat])
                 .addTo(mapRef.current);
 
             driverMarkersRef.current.push(marker);
@@ -594,6 +716,7 @@ export function MapboxMap({
                 isMapPickerActive={isMapPickerActive}
                 onPickupChange={onPickupChange}
                 onLocationChange={onLocationChange}
+                className={className}
             />
         );
     }
@@ -601,12 +724,26 @@ export function MapboxMap({
     return (
         <div
             className={
-                isMapPickerActive
+                className || (isMapPickerActive
                     ? "relative h-full min-h-[470px] overflow-hidden rounded-b-[32px] bg-[#EAF2F0] ring-4 ring-[#008C78]/10"
-                    : "relative h-full min-h-[470px] overflow-hidden rounded-b-[32px] bg-[#EAF2F0]"
+                    : "relative h-full min-h-[470px] overflow-hidden rounded-b-[32px] bg-[#EAF2F0]")
             }
         >
             <div ref={mapContainerRef} className="absolute inset-0 h-full w-full" />
+
+            <button
+                type="button"
+                onClick={handleLocateUser}
+                className="absolute bottom-16 right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-white/90 backdrop-blur-sm shadow-card text-[#008C78] hover:bg-white active:scale-95 transition-all duration-200 border border-slate-200/50"
+                disabled={isLocating}
+                aria-label="Locate me"
+            >
+                {isLocating ? (
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#008C78] border-t-transparent" />
+                ) : (
+                    <LocateFixed className="h-5 w-5" />
+                )}
+            </button>
         </div>
     );
 }

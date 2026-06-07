@@ -1,4 +1,5 @@
-function initials(name = "RideFlow User") {
+function initials(name = "") {
+  if (!name) return "";
   return name
     .split(" ")
     .filter(Boolean)
@@ -8,13 +9,17 @@ function initials(name = "RideFlow User") {
 }
 
 function formatDateTime(value) {
-  if (!value) return "Just now";
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+  if (!value) return "";
+  try {
+    return new Intl.DateTimeFormat("en", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(value));
+  } catch (e) {
+    return "";
+  }
 }
 
 function getDriverUser(driver) {
@@ -27,12 +32,12 @@ function getRiderUser(ride) {
 
 export function getDriverName(driver) {
   const user = getDriverUser(driver);
-  return driver?.name || user?.name || "Ahmed Raza";
+  return driver?.name || user?.name || "";
 }
 
 export function getRiderName(ride) {
   const user = getRiderUser(ride);
-  return ride?.rider?.name || user?.name || "Ali Khan";
+  return ride?.rider?.name || user?.name || "";
 }
 
 export function makeFareRange(fare = {}) {
@@ -46,8 +51,8 @@ export function makeFareRange(fare = {}) {
 
 export function toSearchRideView(ride) {
   return {
-    pickup: ride?.pickup || { address: "Pickup" },
-    dropoff: ride?.dropoff || { address: "Dropoff" },
+    pickup: ride?.pickup || { address: "" },
+    dropoff: ride?.dropoff || { address: "" },
     fare: ride?.fare || {
       currency: "PKR",
       estimated_min_fare: 0,
@@ -55,8 +60,8 @@ export function toSearchRideView(ride) {
     },
     estimated_distance_km: ride?.fare?.estimated_distance_km || 0,
     estimated_duration_min: ride?.fare?.estimated_duration_min || 0,
-    nearby_drivers_count: 6,
-    search_radius_km: 3,
+    nearby_drivers_count: ride?.nearby_drivers_count || 0,
+    search_radius_km: ride?.search_radius_km || 0,
   };
 }
 
@@ -67,21 +72,21 @@ export function toLiveRideView(ride, liveState) {
   return {
     driver: {
       name: driverName,
-      rating: driver.average_rating || 4.8,
+      rating: driver.average_rating || 0,
       total_rides: driver.total_rides || 0,
-      phone: getDriverUser(driver).phone || "+92 300 9876543",
+      phone: getDriverUser(driver).phone || "",
     },
     vehicle: {
-      make: vehicle.make || "Toyota",
-      model: vehicle.model || "Corolla",
-      color: vehicle.color || "White",
-      plate_number: vehicle.plate_number || "LEA-1234",
+      make: vehicle.make || "",
+      model: vehicle.model || "",
+      color: vehicle.color || "",
+      plate_number: vehicle.plate_number || "",
     },
-    pickup: ride?.pickup || { address: "Pickup" },
-    dropoff: ride?.dropoff || { address: "Dropoff" },
+    pickup: ride?.pickup || { address: "" },
+    dropoff: ride?.dropoff || { address: "" },
     fare: ride?.fare || { currency: "PKR" },
     live: {
-      eta_min: liveState?.eta_min || 5,
+      eta_min: liveState?.eta_min || 0,
       distance_remaining_km: liveState?.distance_remaining_km || 0,
       total_distance_km: ride?.fare?.estimated_distance_km || 0,
       traffic_delay_min: ride?.fare?.estimated_traffic_delay_min || 0,
@@ -99,28 +104,28 @@ export function toDriverTripView(ride, liveState, route) {
     arrived_at: formatDateTime(ride?.arrived_at),
     started_at: formatDateTime(ride?.started_at),
     free_waiting_min: 3,
-    waiting_min: ride?.status === "arrived" ? 4 : 0,
+    waiting_min: ride?.status === "arrived" ? (ride?.waiting_min || 0) : 0,
     rider: {
       name: riderName,
       initials: initials(riderName),
-      rating: 5.0,
-      phone: getRiderUser(ride).phone || "+92 300 1234567",
+      rating: ride?.rider?.average_rating || 0,
+      phone: getRiderUser(ride).phone || "",
     },
     pickup: {
-      address: ride?.pickup?.address || "Pickup",
-      detail: ride?.pickup?.address || "Pickup point",
-      landmark: ride?.pickup?.address || "Pickup point",
+      address: ride?.pickup?.address || "",
+      detail: ride?.pickup?.address || "",
+      landmark: ride?.pickup?.address || "",
     },
     dropoff: {
-      address: ride?.dropoff?.address || "Dropoff",
-      detail: ride?.dropoff?.address || "Dropoff point",
-      landmark: ride?.dropoff?.address || "Dropoff point",
+      address: ride?.dropoff?.address || "",
+      detail: ride?.dropoff?.address || "",
+      landmark: ride?.dropoff?.address || "",
     },
     route_to_pickup: {
-      eta_min: liveState?.eta_min || route?.traffic_duration_min || 5,
-      distance_km: liveState?.distance_remaining_km || route?.distance_km || 1.4,
+      eta_min: liveState?.eta_min || route?.traffic_duration_min || 0,
+      distance_km: liveState?.distance_remaining_km || route?.distance_km || 0,
       traffic_delay_min: route?.traffic_delay_min || 0,
-      next_instruction: route?.steps?.[0]?.instruction || "Head to pickup",
+      next_instruction: route?.steps?.[0]?.instruction || "",
     },
     full_trip: {
       estimated_distance_km: fare.estimated_distance_km || route?.distance_km || 0,
@@ -135,7 +140,7 @@ export function toDriverTripView(ride, liveState, route) {
       distance_total_km: fare.estimated_distance_km || 0,
       distance_remaining_km: liveState?.distance_remaining_km || 0,
       duration_total_min: fare.estimated_duration_min || 0,
-      eta_min: liveState?.eta_min || 14,
+      eta_min: liveState?.eta_min || 0,
       traffic_delay_min: fare.estimated_traffic_delay_min || 0,
       progress_percent:
         fare.estimated_distance_km && liveState?.distance_remaining_km
@@ -144,9 +149,9 @@ export function toDriverTripView(ride, liveState, route) {
                 fare.estimated_distance_km) *
                 100
             )
-          : 50,
+          : 0,
     },
-    next_instruction: route?.steps?.[0]?.instruction || "Continue to destination",
+    next_instruction: route?.steps?.[0]?.instruction || "",
     note: ride?.rider_note_to_driver || null,
   };
 }
@@ -162,22 +167,22 @@ export function toReceiptView(receiptData, rideData) {
   const vehicle = receipt.vehicle || ride.vehicle || {};
 
   return {
-    receipt_number: receipt.receipt_number || receipt.id || "RF-00001",
+    receipt_number: receipt.receipt_number || receipt.id || "",
     issued_at: formatDateTime(receipt.issued_at || ride.completed_at),
-    payment_method: receipt.payment_method || "Cash",
-    payment_status: receipt.payment_status || "Paid",
+    payment_method: receipt.payment_method || "",
+    payment_status: receipt.payment_status || "",
     driver: {
       name: driver.name || getDriverName(driver),
-      rating: driver.average_rating || 4.8,
+      rating: driver.average_rating || 0,
     },
     vehicle: {
-      color: vehicle.color || "White",
-      make: vehicle.make || "Toyota",
-      model: vehicle.model || "Corolla",
-      plate_number: vehicle.plate_number || "LEA-1234",
+      color: vehicle.color || "",
+      make: vehicle.make || "",
+      model: vehicle.model || "",
+      plate_number: vehicle.plate_number || "",
     },
-    pickup: receipt.pickup || ride.pickup || { address: "Pickup" },
-    dropoff: receipt.dropoff || ride.dropoff || { address: "Dropoff" },
+    pickup: receipt.pickup || ride.pickup || { address: "" },
+    dropoff: receipt.dropoff || ride.dropoff || { address: "" },
     trip: {
       distance_km:
         receipt.actual_distance_km ||
@@ -217,7 +222,7 @@ export function toDriverSummaryView(receiptData, rideData) {
     rider: {
       name: getRiderName(rideData),
       initials: initials(getRiderName(rideData)),
-      rating: 5.0,
+      rating: rideData?.rider?.average_rating || 0,
     },
     pickup: {
       address: receipt.pickup.address,
@@ -238,7 +243,7 @@ export function toDriverSummaryView(receiptData, rideData) {
       platform_fee: Math.max(0, finalFare - driverEarnings),
       driver_earnings: driverEarnings,
       payment_method: receipt.payment_method,
-      payment_status: receipt.payment_status.toLowerCase(),
+      payment_status: receipt.payment_status ? receipt.payment_status.toLowerCase() : "",
     },
   };
 }
@@ -251,11 +256,11 @@ export function toRatingDriverView(ride) {
   return {
     name,
     initials: initials(name),
-    rating: driver.average_rating || 4.8,
+    rating: driver.average_rating || 0,
     total_rides: driver.total_rides || 0,
-    vehicle: `${vehicle.color || "White"} ${vehicle.make || "Toyota"} ${
-      vehicle.model || "Corolla"
-    }`,
-    plate_number: vehicle.plate_number || "LEA-1234",
+    vehicle: `${vehicle.color || ""} ${vehicle.make || ""} ${
+      vehicle.model || ""
+    }`.trim(),
+    plate_number: vehicle.plate_number || "",
   };
 }

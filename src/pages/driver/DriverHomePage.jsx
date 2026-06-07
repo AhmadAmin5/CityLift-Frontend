@@ -1,5 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { PlatformGeolocation } from "@/utils/geolocation";
+import { toast } from "sonner";
 import {
   AlertTriangle,
   BarChart3,
@@ -50,87 +52,11 @@ import { useDriverProfile } from "@/hooks/driver/useDriverProfile";
 import { useMapConfig } from "@/hooks/maps/useMapConfig";
 import { useSurgeZones } from "@/hooks/maps/useSurgeZones";
 import { useRideSocket } from "@/hooks/socket/useRideSocket";
+import { getAccessToken } from "@/utils/tokenStorage";
+import { createSocket } from "@/socket/socket";
 import { getDriverFromResponse } from "@/utils/apiShapes";
 
-const demoDriver = {
-  name: "Ahmed Raza",
-  initials: "AR",
-  approval_status: "approved",
-  average_rating: 4.8,
-  total_rides: 215,
-  is_available: false,
-  active_vehicle: {
-    id: "vehicle_001",
-    make: "Toyota",
-    model: "Corolla",
-    color: "White",
-    plate_number: "LEA-1234",
-    vehicle_type: "car",
-    verification_status: "approved",
-    is_active: true,
-  },
-  documents: {
-    cnic: "approved",
-    license: "approved",
-    vehicle_registration: "approved",
-  },
-};
-
-const demoStats = {
-  today_earnings: 5300,
-  today_rides: 5,
-  online_hours: 6.5,
-  acceptance_rate: 92,
-};
-
-const demoSurgeZones = [
-  {
-    id: "zone_1",
-    area_name: "Gulberg",
-    surge_multiplier: 1.5,
-    demand_count: 25,
-    available_drivers: 8,
-    left: "20%",
-    top: "32%",
-    size: 150,
-  },
-  {
-    id: "zone_2",
-    area_name: "Johar Town",
-    surge_multiplier: 1.2,
-    demand_count: 18,
-    available_drivers: 10,
-    left: "56%",
-    top: "50%",
-    size: 120,
-  },
-];
-
-const demoOffer = {
-  id: "offer_001",
-  ride_id: "ride_123",
-  expires_in_seconds: 45,
-  distance_to_pickup_km: 1.4,
-  rider: {
-    name: "Ali Khan",
-    initials: "AK",
-    rating: 5.0,
-  },
-  pickup: {
-    address: "Gulberg, Lahore",
-  },
-  dropoff: {
-    address: "Johar Town, Lahore",
-  },
-  estimated_fare: {
-    currency: "PKR",
-    estimated_min_fare: 630,
-    estimated_max_fare: 770,
-  },
-  estimated_distance_km: 12.4,
-  estimated_duration_min: 33,
-  rider_note_to_driver: "Call me when arrived",
-};
+import { useRides } from "@/hooks/rides/useRides";
 
 function getInitials(name = "Driver") {
   return name
@@ -141,16 +67,18 @@ function getInitials(name = "Driver") {
     .join("");
 }
 
-function toDriverHomeView(driverData, documents = demoDriver.documents) {
-  const driver = getDriverFromResponse(driverData) || demoDriver;
+function toDriverHomeView(driverData, documents = {}) {
+  const driver = getDriverFromResponse(driverData) || {};
   const user = driver.user || {};
-  const name = user.name || driver.name || demoDriver.name;
+  const name = user.name || driver.name || "";
 
   return {
-    ...demoDriver,
-    ...driver,
     name,
     initials: getInitials(name),
+    approval_status: driver.approval_status || "pending",
+    average_rating: driver.average_rating || 0,
+    total_rides: driver.total_rides || 0,
+    is_available: Boolean(driver.is_available),
     active_vehicle: driver.active_vehicle || null,
     documents,
   };
@@ -202,29 +130,44 @@ function toDemandZones(zones = []) {
 
 function toOfferView(offer) {
   if (!offer) return null;
+  const expiresAt = offer.expires_at ? new Date(offer.expires_at).getTime() : null;
+  const now = Date.now();
+  const calculatedExpires = expiresAt && expiresAt > now 
+    ? Math.max(0, Math.floor((expiresAt - now) / 1000))
+    : null;
+
   return {
-    ...demoOffer,
     ...offer,
     ride_id: offer.ride_id || offer.ride?.id,
+    expires_in_seconds: calculatedExpires !== null ? calculatedExpires : (offer.expires_in_seconds || 0),
     rider: {
-      name: "Ali Khan",
-      initials: "AK",
-      rating: offer.ride?.rider_rating || 5.0,
+      name: offer.ride?.rider?.name || offer.rider?.name || offer.ride?.rider_name || "",
+      initials: (offer.ride?.rider?.name || offer.rider?.name || offer.ride?.rider_name)
+        ? getInitials(offer.ride?.rider?.name || offer.rider?.name || offer.ride?.rider_name)
+        : "",
+      rating: offer.ride?.rider?.average_rating || offer.ride?.rider_rating || offer.rider?.rating || 0,
     },
-    pickup: offer.ride?.pickup || offer.pickup || demoOffer.pickup,
-    dropoff: offer.ride?.dropoff || offer.dropoff || demoOffer.dropoff,
+    pickup: offer.ride?.pickup || offer.pickup || { address: "" },
+    dropoff: offer.ride?.dropoff || offer.dropoff || { address: "" },
     estimated_fare:
       offer.ride?.estimated_fare ||
+      offer.ride?.fare ||
       offer.estimated_fare ||
-      demoOffer.estimated_fare,
+      null,
     estimated_distance_km:
-      offer.ride?.fare?.estimated_distance_km || demoOffer.estimated_distance_km,
+      offer.ride?.estimated_distance_km ||
+      offer.ride?.fare?.estimated_distance_km ||
+      offer.estimated_distance_km ||
+      0,
     estimated_duration_min:
-      offer.ride?.fare?.estimated_duration_min || demoOffer.estimated_duration_min,
+      offer.ride?.estimated_duration_min ||
+      offer.ride?.fare?.estimated_duration_min ||
+      offer.estimated_duration_min ||
+      0,
     rider_note_to_driver:
       offer.ride?.rider_note_to_driver ||
       offer.rider_note_to_driver ||
-      demoOffer.rider_note_to_driver,
+      null,
   };
 }
 
@@ -318,7 +261,8 @@ function ReadinessCard({ driver }) {
       value: driver.active_vehicle ? "active" : "missing",
       passed:
         Boolean(driver.active_vehicle) &&
-        driver.active_vehicle.verification_status === "approved",
+        (driver.active_vehicle.verification_status === "approved" ||
+          driver.documents.vehicle_registration === "approved"),
     },
     {
       label: "Documents",
@@ -801,6 +745,37 @@ function DemandZonesCard({ zones }) {
 }
 
 function IncomingOfferSheet({ open, offer, onOpenChange, onAccept, onDecline }) {
+  const [secondsLeft, setSecondsLeft] = useState(offer?.expires_in_seconds || 45);
+
+  useEffect(() => {
+    if (offer?.expires_in_seconds !== undefined) {
+      setSecondsLeft(offer.expires_in_seconds);
+    }
+  }, [offer]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    if (secondsLeft <= 0) {
+      onOpenChange(false);
+      return undefined;
+    }
+
+    const timer = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          onOpenChange(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [open, secondsLeft, onOpenChange]);
+
+  if (!open || !offer) return null;
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -821,7 +796,7 @@ function IncomingOfferSheet({ open, offer, onOpenChange, onAccept, onDecline }) 
             </div>
 
             <Badge className="rounded-full bg-[#FFF7ED] px-3 py-1.5 text-[#C2410C] hover:bg-[#FFF7ED]">
-              {offer.expires_in_seconds}s
+              {secondsLeft}s
             </Badge>
           </div>
         </SheetHeader>
@@ -831,18 +806,18 @@ function IncomingOfferSheet({ open, offer, onOpenChange, onAccept, onDecline }) 
             <div className="flex items-center gap-3">
               <Avatar className="h-12 w-12 border border-white">
                 <AvatarFallback className="bg-white text-sm font-bold text-[#008C78]">
-                  {offer.rider.initials}
+                  {offer?.rider?.initials || ""}
                 </AvatarFallback>
               </Avatar>
 
               <div className="min-w-0 flex-1">
                 <p className="text-base font-bold text-[#101820]">
-                  {offer.rider.name}
+                  {offer?.rider?.name || "Rider"}
                 </p>
                 <div className="mt-1 flex items-center gap-1 text-sm text-[#4B5563]">
                   <Star className="h-4 w-4 fill-[#F59E0B] text-[#F59E0B]" />
                   <span className="font-semibold text-[#101820]">
-                    {offer.rider.rating}
+                    {offer?.rider?.rating || 0}
                   </span>
                   <span>rider rating</span>
                 </div>
@@ -877,7 +852,7 @@ function IncomingOfferSheet({ open, offer, onOpenChange, onAccept, onDecline }) 
                 <div>
                   <p className="text-xs font-medium text-[#8A9099]">Pickup</p>
                   <p className="mt-1 truncate text-sm font-bold text-[#101820]">
-                    {offer.pickup.address}
+                    {offer?.pickup?.address || ""}
                   </p>
                 </div>
 
@@ -886,7 +861,7 @@ function IncomingOfferSheet({ open, offer, onOpenChange, onAccept, onDecline }) 
                 <div>
                   <p className="text-xs font-medium text-[#8A9099]">Dropoff</p>
                   <p className="mt-1 truncate text-sm font-bold text-[#101820]">
-                    {offer.dropoff.address}
+                    {offer?.dropoff?.address || ""}
                   </p>
                 </div>
               </div>
@@ -897,7 +872,7 @@ function IncomingOfferSheet({ open, offer, onOpenChange, onAccept, onDecline }) 
             <Card className="rounded-[18px] border-[#E1E5EA] bg-white p-3 shadow-sm">
               <MapPin className="h-4 w-4 text-[#008C78]" />
               <p className="mt-2 text-sm font-bold text-[#101820]">
-                {offer.distance_to_pickup_km} km
+                {offer?.distance_to_pickup_km || 0} km
               </p>
               <p className="text-xs text-[#8A9099]">To pickup</p>
             </Card>
@@ -905,7 +880,7 @@ function IncomingOfferSheet({ open, offer, onOpenChange, onAccept, onDecline }) 
             <Card className="rounded-[18px] border-[#E1E5EA] bg-white p-3 shadow-sm">
               <Route className="h-4 w-4 text-[#008C78]" />
               <p className="mt-2 text-sm font-bold text-[#101820]">
-                {offer.estimated_distance_km} km
+                {offer?.estimated_distance_km || 0} km
               </p>
               <p className="text-xs text-[#8A9099]">Trip</p>
             </Card>
@@ -913,7 +888,7 @@ function IncomingOfferSheet({ open, offer, onOpenChange, onAccept, onDecline }) 
             <Card className="rounded-[18px] border-[#E1E5EA] bg-white p-3 shadow-sm">
               <Clock className="h-4 w-4 text-[#008C78]" />
               <p className="mt-2 text-sm font-bold text-[#101820]">
-                {offer.estimated_duration_min} min
+                {offer?.estimated_duration_min || 0} min
               </p>
               <p className="text-xs text-[#8A9099]">ETA</p>
             </Card>
@@ -924,9 +899,11 @@ function IncomingOfferSheet({ open, offer, onOpenChange, onAccept, onDecline }) 
               <div>
                 <p className="text-sm text-[#4B5563]">Estimated fare</p>
                 <p className="mt-1 text-2xl font-bold tracking-[-0.03em] text-[#101820]">
-                  {offer.estimated_fare.currency}{" "}
-                  {offer.estimated_fare.estimated_min_fare}-
-                  {offer.estimated_fare.estimated_max_fare}
+                  {typeof offer?.estimated_fare === "object" ? (
+                    `${offer?.estimated_fare?.currency || "PKR"} ${offer?.estimated_fare?.estimated_min_fare || 0}-${offer?.estimated_fare?.estimated_max_fare || 0}`
+                  ) : (
+                    `PKR ${offer?.estimated_fare || 0}`
+                  )}
                 </p>
               </div>
 
@@ -940,7 +917,7 @@ function IncomingOfferSheet({ open, offer, onOpenChange, onAccept, onDecline }) 
             <p className="text-sm leading-5 text-[#4B5563]">
               Rider note:{" "}
               <span className="font-semibold text-[#101820]">
-                {offer.rider_note_to_driver}
+                {offer?.rider_note_to_driver || "None"}
               </span>
             </p>
           </Card>
@@ -992,6 +969,7 @@ export default function DriverHomePage() {
   const driverLocationMutation = useDriverLocation();
   const acceptOfferMutation = useAcceptRideOffer();
   const declineOfferMutation = useDeclineRideOffer();
+  const ridesQuery = useRides({ role: "driver" });
 
   const driverProfileView = toDriverHomeView(driverQuery.data);
   const documentStatusMap = toDocumentStatusMap(
@@ -999,16 +977,44 @@ export default function DriverHomePage() {
     driverProfileView.active_vehicle?.id
   );
   const driver = toDriverHomeView(driverQuery.data, documentStatusMap);
-  const pendingOffer = socketOffer || offersQuery.data?.[0] || null;
+  const offersList = Array.isArray(offersQuery.data)
+    ? offersQuery.data
+    : (offersQuery.data?.offers || offersQuery.data?.data || []);
+  const pendingOffer = socketOffer || offersList[0] || null;
   const offer = toOfferView(pendingOffer);
-  const surgeZones = toDemandZones(surgeZonesQuery.data || demoSurgeZones);
+  const surgeZones = toDemandZones(surgeZonesQuery.data || []);
   const isOnline = Boolean(driver.is_available);
+
+  const driverRides = ridesQuery.data?.data || ridesQuery.data || [];
+  const stats = useMemo(() => {
+    const completedRides = driverRides.filter(r => r.status === "completed");
+    const todayStart = new Date();
+    todayStart.setHours(0,0,0,0);
+    
+    const todayCompleted = completedRides.filter(r => {
+      const dateVal = r.completed_at || r.updated_at;
+      return dateVal ? new Date(dateVal) >= todayStart : false;
+    });
+    const todayEarnings = todayCompleted.reduce((sum, r) => sum + Number(r.fare?.final_fare || 0), 0);
+    
+    const totalOffers = driverRides.length;
+    const acceptedOffers = driverRides.filter(r => r.status !== "cancelled" && r.status !== "rejected").length;
+    const acceptanceRate = totalOffers > 0 ? Math.round((acceptedOffers / totalOffers) * 100) : 100;
+
+    return {
+      today_earnings: todayEarnings,
+      today_rides: todayCompleted.length,
+      online_hours: 0,
+      acceptance_rate: acceptanceRate,
+    };
+  }, [driverRides]);
 
   const canGoOnline = useMemo(() => {
     const approved = driver.approval_status === "approved";
     const hasActiveApprovedVehicle =
       Boolean(driver.active_vehicle) &&
-      driver.active_vehicle.verification_status === "approved";
+      (driver.active_vehicle.verification_status === "approved" ||
+        driver.documents.vehicle_registration === "approved");
     const docsApproved = Object.values(driver.documents || {}).every(
       (status) => status === "approved"
     );
@@ -1019,17 +1025,99 @@ export default function DriverHomePage() {
   useRideSocket({
     handlers: {
       onOffer: (nextOffer) => {
-        setSocketOffer(nextOffer);
+        const offer = nextOffer?.offer || nextOffer;
+        console.log("[DriverHome] \ud83d\udd14 ride:offer received:", offer);
+        setSocketOffer(offer);
         setOfferOpen(true);
       },
       onOfferExpired: (expiredOffer) => {
-        if (!expiredOffer?.id || expiredOffer.id === pendingOffer?.id) {
+        console.log("[DriverHome] \ud83d\udd14 ride:offer:expired received:", expiredOffer);
+        const expiredId = expiredOffer?.offer_id || expiredOffer?.id;
+        const currentId = pendingOffer?.id;
+        if (!expiredId || expiredId === currentId) {
           setOfferOpen(false);
           setSocketOffer(null);
         }
       },
     },
   });
+
+  useEffect(() => {
+    let watchId = null;
+
+    async function startWatching() {
+      if (!isOnline) return;
+
+      try {
+        const permissionStatus = await PlatformGeolocation.checkPermissions();
+        if (permissionStatus.location !== "granted") {
+          const requestStatus = await PlatformGeolocation.requestPermissions();
+          if (requestStatus.location !== "granted") {
+            toast.error("Location permission is required to remain online");
+            handleToggleOnline(false);
+            return;
+          }
+        }
+
+        watchId = await PlatformGeolocation.watchPosition(
+          {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0,
+          },
+          (position, err) => {
+            if (err) {
+              console.error("Continuous tracking error:", err);
+              return;
+            }
+            if (position?.coords) {
+              const nextLoc = {
+                latitude: Number(position.coords.latitude),
+                longitude: Number(position.coords.longitude),
+                address: "My current location",
+                provider: "mapbox",
+                provider_place_id: null,
+              };
+
+              setDriverLocation(nextLoc);
+
+              // Update the backend using driverLocationMutation
+              driverLocationMutation.mutate({
+                latitude: nextLoc.latitude,
+                longitude: nextLoc.longitude,
+                heading: position.coords.heading || 90,
+                speed_kmph: position.coords.speed ? Math.round(position.coords.speed * 3.6) : 0,
+                current_area: "Gulberg",
+              });
+
+              // Emit socket location update if online
+              const token = getAccessToken();
+              const socket = createSocket(token);
+              if (socket?.connected) {
+                socket.emit("driver:location:update", {
+                  latitude: nextLoc.latitude,
+                  longitude: nextLoc.longitude,
+                  heading: position.coords.heading || 90,
+                  speed_kmph: position.coords.speed ? Math.round(position.coords.speed * 3.6) : 0,
+                  current_area: "Gulberg",
+                });
+              }
+            }
+          }
+        );
+      } catch (error) {
+        console.error("Failed to start watching location:", error);
+      }
+    }
+
+    startWatching();
+
+    return () => {
+      if (watchId !== null) {
+        PlatformGeolocation.clearWatch({ id: watchId });
+      }
+    };
+  }, [isOnline]);
 
   async function handleToggleOnline(nextValue) {
     if (!canGoOnline) return;
@@ -1067,6 +1155,19 @@ export default function DriverHomePage() {
         speed_kmph: isOnline ? 20 : 0,
         current_area: "Gulberg",
       });
+
+      // Emit socket location update if online
+      const token = getAccessToken();
+      const socket = createSocket(token);
+      if (socket?.connected) {
+        socket.emit("driver:location:update", {
+          latitude: nextLocation.latitude,
+          longitude: nextLocation.longitude,
+          heading: 90,
+          speed_kmph: isOnline ? 20 : 0,
+          current_area: "Gulberg",
+        });
+      }
     } catch (error) {
       window.alert(getApiErrorMessage(error));
     }
@@ -1173,7 +1274,7 @@ export default function DriverHomePage() {
 
                 <Badge className="rounded-full bg-white px-3 py-1.5 text-[#101820] shadow-soft hover:bg-white">
                   <BarChart3 className="mr-1 h-3.5 w-3.5 text-[#008C78]" />
-                  {demoStats.today_rides} rides today
+                  {stats.today_rides} rides today
                 </Badge>
 
                 <Badge className="rounded-full bg-[#FFF7ED] px-3 py-1.5 text-[#C2410C] shadow-soft hover:bg-[#FFF7ED]">
@@ -1217,7 +1318,7 @@ export default function DriverHomePage() {
               />
             ) : null}
 
-            <DriverStatsGrid stats={demoStats} />
+            <DriverStatsGrid stats={stats} />
 
             <DemandZonesCard zones={surgeZones} />
 
@@ -1227,7 +1328,7 @@ export default function DriverHomePage() {
 
         <IncomingOfferSheet
           open={offerOpen && Boolean(offer)}
-          offer={offer || demoOffer}
+          offer={offer || {}}
           onOpenChange={setOfferOpen}
           onAccept={handleAcceptOffer}
           onDecline={handleDeclineOffer}

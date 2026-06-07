@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -43,44 +43,22 @@ import { useCancelRide } from "@/hooks/rides/useCancelRide";
 import { useRide } from "@/hooks/rides/useRide";
 import { useRideLive } from "@/hooks/rides/useRideLive";
 import { useRideRoute } from "@/hooks/rides/useRideRoute";
-import { useArriveRide } from "@/hooks/rides/useRideActions";
+import { useArriveRide, useSubmitRideTracking } from "@/hooks/rides/useRideActions";
+import { useRideSocket } from "@/hooks/socket/useRideSocket";
+import { getAccessToken } from "@/utils/tokenStorage";
+import { createSocket } from "@/socket/socket";
+import { PlatformGeolocation } from "@/utils/geolocation";
+import { toast } from "sonner";
 import {
   getLiveStateFromResponse,
   getRideFromResponse,
   getRouteFromResponse,
 } from "@/utils/apiShapes";
 import { toDriverTripView } from "@/utils/rideUi";
+import { MapboxMap } from "@/components/map/MapboxMap";
+import { useMapConfig } from "@/hooks/maps/useMapConfig";
 
-const demoTrip = {
-  ride_id: "ride_123",
-  status: "accepted",
-  rider: {
-    name: "Ali Khan",
-    initials: "AK",
-    rating: 5.0,
-    phone: "+92 300 1234567",
-  },
-  pickup: {
-    address: "Gulberg, Lahore",
-    detail: "Main Boulevard, near Liberty signal",
-  },
-  dropoff: {
-    address: "Johar Town, Lahore",
-    detail: "Near Emporium Mall",
-  },
-  route_to_pickup: {
-    eta_min: 5,
-    distance_km: 1.4,
-    traffic_delay_min: 2,
-    next_instruction: "Head east on Main Boulevard",
-  },
-  full_trip: {
-    estimated_distance_km: 12.4,
-    estimated_duration_min: 33,
-    fare_range: "PKR 630-770",
-  },
-  note: "Call me when arrived",
-};
+
 
 function NavigationMapMock({ trip }) {
   const driverPositions = useMemo(
@@ -348,17 +326,191 @@ export default function DriverNavigationToPickupPage() {
   const { ride_id } = useParams();
 
   const [navigationMode, setNavigationMode] = useState("in_app");
+  const [driverCoords, setDriverCoords] = useState(null);
+  const lastEmitTimeRef = useRef(0);
   const rideQuery = useRide(ride_id);
   const liveQuery = useRideLive(ride_id);
   const routeQuery = useRideRoute(ride_id, "driver_to_pickup");
   const arriveMutation = useArriveRide(ride_id);
   const cancelRideMutation = useCancelRide(ride_id);
+  const trackingMutation = useSubmitRideTracking(ride_id);
+
+  const mapConfigQuery = useMapConfig();
 
   const ride = getRideFromResponse(rideQuery.data);
   const liveState = getLiveStateFromResponse(liveQuery.data);
   const route = getRouteFromResponse(routeQuery.data);
   const trip = toDriverTripView(ride, liveState, route);
   const rideId = ride_id || trip.ride_id;
+
+  useEffect(() => {
+    const flushOfflineQueue = async () => {
+      if (!navigator.onLine || !rideId) return;
+      const stored = localStorage.getItem(`offline_points_${rideId}`);
+      if (!stored) return;
+      try {
+        const points = JSON.parse(stored);
+        if (points.length === 0) return;
+        console.log(`[OfflineSync] Flushing ${points.length} offline points...`);
+        for (const pt of points) {
+          await submitRideTracking({ rideId, ...pt });
+        }
+        localStorage.removeItem(`offline_points_${rideId}`);
+        console.log(`[OfflineSync] Flush complete.`);
+      } catch (e) {
+        console.error("Error flushing offline points:", e);
+      }
+    };
+
+    const handleOnline = () => {
+      flushOfflineQueue();
+    };
+
+    window.addEventListener("online", handleOnline);
+    if (navigator.onLine) {
+      flushOfflineQueue();
+    }
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [rideId]);
+
+  useRideSocket({
+    rideId: ride_id,
+    handlers: {
+      onStatusUpdate: (payload) => {
+        console.log("[DriverNavigation] 🔔 ride:status:update received:", payload);
+        const newStatus = payload?.new_status || payload?.status;
+        if (payload?.ride_id !== ride_id) return;
+        if (newStatus === "cancelled") {
+          toast.error("Ride was cancelled by the rider");
+          navigate("/driver/home", { replace: true });
+        }
+      },
+      onCancelled: (payload) => {
+        console.log("[DriverNavigation] 🔔 ride:cancelled received:", payload);
+        if (!payload?.ride_id || payload.ride_id === ride_id) {
+          toast.error("Ride was cancelled");
+          navigate("/driver/home", { replace: true });
+        }
+      },
+      onLiveUpdate: (payload) => {
+        console.log("[DriverNavigation] 🔔 ride:live:update received:", payload);
+        liveQuery.refetch();
+      },
+      onRouteUpdate: (payload) => {
+        console.log("[DriverNavigation] 🔔 ride:route:update received:", payload);
+        routeQuery.refetch();
+      },
+    },
+    enabled: Boolean(ride_id),
+  });
+
+  useEffect(() => {
+    let watchId = null;
+
+    async function startWatching() {
+      if (!ride_id) return;
+
+      try {
+        const permissionStatus = await PlatformGeolocation.checkPermissions();
+        if (permissionStatus.location !== "granted") {
+          const requestStatus = await PlatformGeolocation.requestPermissions();
+          if (requestStatus.location !== "granted") {
+            toast.error("Location permission is required for navigation");
+            return;
+          }
+        }
+
+        watchId = await PlatformGeolocation.watchPosition(
+          {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0,
+          },
+          async (position, err) => {
+            if (err) {
+              console.error("Continuous tracking error:", err);
+              return;
+            }
+            if (position?.coords) {
+              const nextLoc = {
+                latitude: Number(position.coords.latitude),
+                longitude: Number(position.coords.longitude),
+              };
+              setDriverCoords(nextLoc);
+
+              const speed_kmph = position.coords.speed ? Math.round(position.coords.speed * 3.6) : 0;
+              const heading = position.coords.heading || 90;
+              const eta_min = trip.route_to_pickup?.eta_min || 5;
+              const distance_remaining_km = trip.route_to_pickup?.distance_km || 1.4;
+
+              // Throttle to 5 seconds
+              const now = Date.now();
+              if (now - lastEmitTimeRef.current < 5000) {
+                return;
+              }
+              lastEmitTimeRef.current = now;
+
+              const trackingPayload = {
+                latitude: nextLoc.latitude,
+                longitude: nextLoc.longitude,
+                speed_kmph,
+                heading,
+                traffic_level: "medium",
+                eta_min,
+                distance_remaining_km,
+              };
+
+              let sentSuccessfully = false;
+              const token = getAccessToken();
+              const socket = createSocket(token);
+
+              if (navigator.onLine && socket?.connected) {
+                try {
+                  console.log("[DriverNavigation] 📡 Emitting ride:tracking:update:", { ride_id, ...trackingPayload });
+                  socket.emit("ride:tracking:update", { ride_id, ...trackingPayload });
+                  sentSuccessfully = true;
+                } catch (socketErr) {
+                  console.error("[DriverNavigation] Socket emit failed:", socketErr);
+                }
+              }
+
+              if (!sentSuccessfully && navigator.onLine) {
+                try {
+                  console.log("[DriverNavigation] 📡 Falling back to HTTP tracking POST...");
+                  await submitRideTracking({ rideId: ride_id, ...trackingPayload });
+                  sentSuccessfully = true;
+                } catch (httpErr) {
+                  console.error("[DriverNavigation] HTTP fallback failed:", httpErr);
+                }
+              }
+
+              if (!sentSuccessfully) {
+                console.log("[DriverNavigation] 💾 Storing telemetry locally...");
+                const stored = localStorage.getItem(`offline_points_${ride_id}`);
+                const points = stored ? JSON.parse(stored) : [];
+                points.push(trackingPayload);
+                localStorage.setItem(`offline_points_${ride_id}`, JSON.stringify(points));
+                localStorage.setItem(`offline_occurred_${ride_id}`, "true");
+              }
+            }
+          }
+        );
+      } catch (error) {
+        console.error("Failed to start watching location:", error);
+      }
+    }
+
+    startWatching();
+
+    return () => {
+      if (watchId !== null) {
+        PlatformGeolocation.clearWatch({ id: watchId });
+      }
+    };
+  }, [ride_id, trip.route_to_pickup?.eta_min, trip.route_to_pickup?.distance_km]);
 
   async function handleArrived() {
     try {
@@ -398,7 +550,31 @@ export default function DriverNavigationToPickupPage() {
     <main className="min-h-screen bg-white">
       <section className="mx-auto min-h-screen w-full max-w-[430px] bg-white">
         <div className="relative h-[47vh] min-h-[410px]">
-          <NavigationMapMock trip={trip} />
+          <MapboxMap
+            pickup={trip.pickup}
+            dropoff={trip.dropoff}
+            route={route}
+            mapConfig={mapConfigQuery.data}
+            nearbyDrivers={
+              driverCoords
+                ? [
+                    {
+                      driver_id: "driver",
+                      latitude: driverCoords.latitude,
+                      longitude: driverCoords.longitude,
+                    },
+                  ]
+                : (liveState?.latitude || liveState?.current_location?.latitude)
+                ? [
+                    {
+                      driver_id: "driver",
+                      latitude: liveState.latitude || liveState.current_location?.latitude,
+                      longitude: liveState.longitude || liveState.current_location?.longitude,
+                    },
+                  ]
+                : []
+            }
+          />
 
           <header className="absolute left-0 right-0 top-0 z-40 px-5 pt-6">
             <div className="flex items-center justify-between">

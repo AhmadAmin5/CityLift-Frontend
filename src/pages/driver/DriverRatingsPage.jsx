@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -31,95 +31,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 
-const ratingSummary = {
-  average_rating: 4.8,
-  total_reviews: 186,
-  total_rides: 215,
-  positive_feedback_percent: 96,
-  repeat_riders: 42,
-  distribution: [
-    { stars: 5, count: 142 },
-    { stars: 4, count: 31 },
-    { stars: 3, count: 9 },
-    { stars: 2, count: 3 },
-    { stars: 1, count: 1 },
-  ],
-};
-
-const compliments = [
-  {
-    id: "safe_driving",
-    label: "Safe driving",
-    count: 82,
-    icon: ShieldCheck,
-  },
-  {
-    id: "clean_car",
-    label: "Clean car",
-    count: 64,
-    icon: Car,
-  },
-  {
-    id: "polite_driver",
-    label: "Polite driver",
-    count: 73,
-    icon: Heart,
-  },
-  {
-    id: "on_time",
-    label: "On time",
-    count: 51,
-    icon: Clock,
-  },
-];
-
-const reviews = [
-  {
-    id: "review_001",
-    rider_name: "Ali Khan",
-    rider_initials: "AK",
-    rating: 5,
-    created_at: "Today · 4:58 PM",
-    route: "Gulberg → Johar Town",
-    comment: "Great driver, clean car, smooth ride.",
-    tags: ["Safe driving", "Clean car", "Polite driver"],
-    replied: false,
-  },
-  {
-    id: "review_002",
-    rider_name: "Sara Ahmed",
-    rider_initials: "SA",
-    rating: 5,
-    created_at: "Yesterday · 8:30 PM",
-    route: "DHA → MM Alam Road",
-    comment: "Very professional and arrived on time.",
-    tags: ["On time", "Polite driver"],
-    replied: true,
-    reply: "Thank you for riding with me.",
-  },
-  {
-    id: "review_003",
-    rider_name: "Hassan R.",
-    rider_initials: "HR",
-    rating: 4,
-    created_at: "May 25 · 6:12 PM",
-    route: "Model Town → Liberty",
-    comment: "Good ride overall. Slight delay due to traffic.",
-    tags: ["Safe driving"],
-    replied: false,
-  },
-  {
-    id: "review_004",
-    rider_name: "Minaal S.",
-    rider_initials: "MS",
-    rating: 3,
-    created_at: "May 24 · 11:10 AM",
-    route: "Wapda Town → Emporium",
-    comment: "Ride was okay, but pickup communication could be better.",
-    tags: ["Safe driving"],
-    replied: false,
-  },
-];
+import { useDriverProfile } from "@/hooks/driver/useDriverProfile";
+import { useDriverRatings } from "@/hooks/driver/useDriverRatings";
+import { LoadingState } from "@/common/LoadingState";
 
 function RatingHero({ summary }) {
   return (
@@ -472,10 +386,107 @@ function ReplySheet({
 export default function DriverRatingsPage() {
   const navigate = useNavigate();
 
+  const driverProfileQuery = useDriverProfile();
+  const driver = driverProfileQuery.data || {};
+  const ratingsQuery = useDriverRatings();
+  const ratings = ratingsQuery.data || [];
+
+  if (driverProfileQuery.isLoading || ratingsQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <LoadingState label="Loading ratings..." />
+      </main>
+    );
+  }
+
+  const ratingSummary = useMemo(() => {
+    const totalReviews = ratings.length;
+    const avgRating = driver.average_rating || (totalReviews > 0 ? Number((ratings.reduce((sum, r) => sum + r.rating, 0) / totalReviews).toFixed(1)) : 5.0);
+
+    const distribution = [5, 4, 3, 2, 1].map((stars) => {
+      const count = ratings.filter((r) => Math.round(r.rating) === stars).length;
+      return { stars, count };
+    });
+
+    const positiveRides = ratings.filter((r) => r.rating >= 4).length;
+    const positivePercent = totalReviews > 0 ? Math.round((positiveRides / totalReviews) * 100) : 0;
+
+    return {
+      average_rating: avgRating,
+      total_reviews: totalReviews,
+      total_rides: driver.total_rides || totalReviews,
+      positive_feedback_percent: positivePercent,
+      repeat_riders: 0,
+      distribution,
+    };
+  }, [driver, ratings]);
+
+  const compliments = useMemo(() => {
+    const commentedRatings = ratings.filter(r => r.comment);
+    const counts = { safe: 0, clean: 0, polite: 0, time: 0 };
+    commentedRatings.forEach((r) => {
+      const comment = r.comment.toLowerCase();
+      if (comment.includes("safe") || comment.includes("careful")) counts.safe++;
+      if (comment.includes("clean") || comment.includes("hygiene")) counts.clean++;
+      if (comment.includes("polite") || comment.includes("friendly") || comment.includes("nice")) counts.polite++;
+      if (comment.includes("time") || comment.includes("fast") || comment.includes("quick")) counts.time++;
+    });
+
+    return [
+      { id: "safe_driving", label: "Safe driving", count: counts.safe, icon: ShieldCheck },
+      { id: "clean_car", label: "Clean car", count: counts.clean, icon: Car },
+      { id: "polite_driver", label: "Polite driver", count: counts.polite, icon: Heart },
+      { id: "on_time", label: "On time", count: counts.time, icon: Clock },
+    ];
+  }, [ratings]);
+
+  const reviews = useMemo(() => {
+    return ratings.map((rating, index) => {
+      const riderName = rating.rider?.name || "Rider";
+      const initials = riderName.split(" ").map(p => p[0]).join("").toUpperCase();
+      
+      let createdStr = "Recently";
+      if (rating.created_at) {
+        try {
+          createdStr = new Intl.DateTimeFormat("en", {
+            month: "short",
+            day: "numeric",
+          }).format(new Date(rating.created_at));
+        } catch(e) {}
+      }
+
+      const tags = [];
+      const comment = (rating.comment || "").toLowerCase();
+      if (comment.includes("safe") || comment.includes("careful")) tags.push("Safe driving");
+      if (comment.includes("clean") || comment.includes("hygiene")) tags.push("Clean car");
+      if (comment.includes("polite") || comment.includes("friendly") || comment.includes("nice")) tags.push("Polite driver");
+      if (comment.includes("time") || comment.includes("fast") || comment.includes("quick")) tags.push("On time");
+
+      return {
+        id: rating.id || `review_${index}`,
+        rider_name: riderName,
+        rider_initials: initials || "R",
+        rating: rating.rating,
+        created_at: createdStr,
+        route: "Completed trip",
+        comment: rating.comment || "Smooth ride, thank you!",
+        tags,
+        replied: false,
+        reply: null,
+      };
+    });
+  }, [ratings]);
+
   const [activeTab, setActiveTab] = useState("all");
-  const [reviewItems, setReviewItems] = useState(reviews);
+  const [reviewItems, setReviewItems] = useState([]);
   const [selectedReview, setSelectedReview] = useState(null);
   const [replyText, setReplyText] = useState("Thank you for riding with me.");
+
+  useEffect(() => {
+    if (reviews.length > 0) {
+      setReviewItems(reviews);
+    }
+  }, [reviews]);
 
   const filteredReviews = useMemo(() => {
     if (activeTab === "all") return reviewItems;
