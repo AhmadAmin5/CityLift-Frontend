@@ -33,6 +33,7 @@ import { MapboxMap } from "@/components/map/MapboxMap";
 import { useMapConfig } from "@/hooks/maps/useMapConfig";
 import { LoadingState } from "@/common/LoadingState";
 import { ErrorState } from "@/common/ErrorState";
+import { getDriverName } from "@/utils/rideUi";
 
 
 
@@ -448,29 +449,30 @@ export default function RiderRideDetailPage() {
       }))
       .sort((a, b) => a.stop_order - b.stop_order);
 
+    const driverName = rideData.driver ? getDriverName(rideData.driver) : "";
     const driver = rideData.driver
       ? {
-          name: rideData.driver.name || "Ahmed Raza",
-          initials: rideData.driver.name
-            ? rideData.driver.name
+          name: driverName || "Driver",
+          initials: driverName
+            ? driverName
                 .split(" ")
                 .filter(Boolean)
                 .slice(0, 2)
                 .map((part) => part[0]?.toUpperCase())
                 .join("")
             : "DR",
-          rating: rideData.driver.average_rating || 4.8,
+          rating: rideData.driver.average_rating || 0,
           total_rides: rideData.driver.total_rides || 0,
-          phone: rideData.driver.phone || "+92 300 9876543",
+          phone: rideData.driver.user?.phone || rideData.driver.phone || "",
         }
       : null;
 
     const vehicle = rideData.vehicle
       ? {
-          make: rideData.vehicle.make || "Toyota",
-          model: rideData.vehicle.model || "Corolla",
-          color: rideData.vehicle.color || "White",
-          plate_number: rideData.vehicle.plate_number || "LEA-1234",
+          make: rideData.vehicle.make || "",
+          model: rideData.vehicle.model || "",
+          color: rideData.vehicle.color || "",
+          plate_number: rideData.vehicle.plate_number || "",
           vehicle_type: rideData.vehicle.vehicle_type || "car",
         }
       : null;
@@ -478,36 +480,55 @@ export default function RiderRideDetailPage() {
     const fareObj = rideData.fare || {};
     const breakdown = receiptData?.fare_breakdown || receiptData || {};
 
+    const toNum = (val, fallback = 0) => {
+      const num = Number(val);
+      return isNaN(num) ? fallback : num;
+    };
+
+    const getFareBreakdownVal = (breakdownField, fareField) => {
+      if (breakdownField !== undefined && breakdownField !== null) {
+        return toNum(breakdownField);
+      }
+      return toNum(fareField);
+    };
+
     const fare = {
       currency: fareObj.currency || "PKR",
-      final_fare:
-        breakdown.final_fare ||
-        fareObj.final_fare ||
-        fareObj.estimated_min_fare ||
-        0,
-      estimated_min_fare: fareObj.estimated_min_fare || 0,
-      estimated_max_fare: fareObj.estimated_max_fare || 0,
-      base_fare: breakdown.base_fare || fareObj.base_fare || 100,
-      distance_fare:
-        breakdown.distance_fare ||
-        (fareObj.actual_distance_km
-          ? Math.round(fareObj.actual_distance_km * (fareObj.per_km_rate || 40))
-          : 0),
-      duration_fare:
-        breakdown.duration_fare ||
-        (fareObj.actual_duration_min
-          ? Math.round(fareObj.actual_duration_min * (fareObj.per_min_rate || 8))
-          : 0),
-      traffic_delay_fare:
-        breakdown.traffic_delay_fare ||
-        (fareObj.actual_traffic_delay_min
-          ? Math.round(fareObj.actual_traffic_delay_min * (fareObj.traffic_delay_per_min_rate || 4))
-          : 0),
-      surge_amount:
-        breakdown.surge_amount ||
-        (breakdown.final_fare
-          ? Math.round(breakdown.final_fare * 0.1)
-          : 0),
+      final_fare: getFareBreakdownVal(
+        breakdown.final_fare,
+        fareObj.final_fare || fareObj.estimated_min_fare || 0
+      ),
+      estimated_min_fare: toNum(fareObj.estimated_min_fare),
+      estimated_max_fare: toNum(fareObj.estimated_max_fare),
+      base_fare: getFareBreakdownVal(breakdown.base_fare, fareObj.base_fare || 100),
+      distance_fare: toNum(
+        breakdown.distance_fare !== undefined && breakdown.distance_fare !== null
+          ? breakdown.distance_fare
+          : (fareObj.actual_distance_km
+            ? Math.round(fareObj.actual_distance_km * (fareObj.per_km_rate || 40))
+            : 0)
+      ),
+      duration_fare: toNum(
+        breakdown.duration_fare !== undefined && breakdown.duration_fare !== null
+          ? breakdown.duration_fare
+          : (fareObj.actual_duration_min
+            ? Math.round(fareObj.actual_duration_min * (fareObj.per_min_rate || 8))
+            : 0)
+      ),
+      traffic_delay_fare: toNum(
+        breakdown.traffic_delay_fare !== undefined && breakdown.traffic_delay_fare !== null
+          ? breakdown.traffic_delay_fare
+          : (fareObj.actual_traffic_delay_min
+            ? Math.round(fareObj.actual_traffic_delay_min * (fareObj.traffic_delay_per_min_rate || 4))
+            : 0)
+      ),
+      surge_amount: toNum(
+        breakdown.surge_amount !== undefined && breakdown.surge_amount !== null
+          ? breakdown.surge_amount
+          : (breakdown.final_fare
+            ? Math.round(breakdown.final_fare * 0.1)
+            : 0)
+      ),
       payment_status:
         receiptData?.payment_status ||
         (rideData.status === "completed" ? "paid" : "pending"),

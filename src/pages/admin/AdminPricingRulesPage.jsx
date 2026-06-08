@@ -21,6 +21,7 @@ import {
 import { LoadingState } from "@/common/LoadingState";
 import { ErrorState } from "@/common/ErrorState";
 import { getApiErrorMessage } from "@/api/client";
+import { formatUuid } from "@/utils/rideUi";
 
 export default function AdminPricingRulesPage() {
   const navigate = useNavigate();
@@ -187,7 +188,7 @@ export default function AdminPricingRulesPage() {
                     <h3 className="text-lg font-bold text-[#101820] capitalize">
                       {rule.city} · {rule.vehicle_type}
                     </h3>
-                    <p className="text-xs text-[#8A9099]">ID: {rule.id}</p>
+                    <p className="text-xs text-[#8A9099]">ID: {formatUuid(rule.id)}</p>
                   </div>
 
                   <div className="flex gap-2">

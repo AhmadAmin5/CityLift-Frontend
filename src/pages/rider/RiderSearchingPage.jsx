@@ -36,7 +36,7 @@ import { useCancelRide } from "@/hooks/rides/useCancelRide";
 import { useRide } from "@/hooks/rides/useRide";
 import { useRideSocket } from "@/hooks/socket/useRideSocket";
 import { getRideFromResponse } from "@/utils/apiShapes";
-import { toSearchRideView } from "@/utils/rideUi";
+import { toSearchRideView, formatUuid } from "@/utils/rideUi";
 import { MapboxMap } from "@/components/map/MapboxMap";
 import { useMapConfig } from "@/hooks/maps/useMapConfig";
 
@@ -401,7 +401,7 @@ export default function RiderSearchingPage() {
                     Ride request ID
                   </p>
                   <p className="mt-0.5 truncate text-xs text-[#4B5563]">
-                    {ride_id}
+                    {formatUuid(ride_id)}
                   </p>
                 </div>
 

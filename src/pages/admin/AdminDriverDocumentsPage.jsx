@@ -15,6 +15,7 @@ import {
 import { getApiErrorMessage } from "@/api/client";
 import { LoadingState } from "@/common/LoadingState";
 import { ErrorState } from "@/common/ErrorState";
+import { formatUuid } from "@/utils/rideUi";
 
 export default function AdminDriverDocumentsPage() {
   const navigate = useNavigate();
@@ -106,7 +107,7 @@ export default function AdminDriverDocumentsPage() {
                       {doc.document_type.replace("_", " ")}
                     </h3>
                     <p className="text-xs text-[#8A9099]">
-                      Driver: {doc.driver_name || (doc.driver_id === "driver_001" ? "Ahmed Raza" : doc.driver_id)}
+                      Driver: {doc.driver_name || `Driver #${formatUuid(doc.driver_id)}`}
                     </p>
                   </div>
                 </div>
@@ -126,7 +127,7 @@ export default function AdminDriverDocumentsPage() {
 
               <div className="mt-4 flex flex-col gap-1 rounded-xl bg-[#F7F8FA] p-3 text-xs text-[#4B5563]">
                 <p>
-                  <span className="font-semibold text-[#101820]">Document ID:</span> {doc.id}
+                  <span className="font-semibold text-[#101820]">Document ID:</span> {formatUuid(doc.id)}
                 </p>
                 <p>
                   <span className="font-semibold text-[#101820]">File URL:</span>{" "}

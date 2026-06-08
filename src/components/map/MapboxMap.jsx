@@ -35,6 +35,83 @@ function hideMapClutter(map) {
     });
 }
 
+function findClosestCoordinateIndex(point, coords) {
+    if (!coords || coords.length === 0) return 0;
+    let minDistance = Infinity;
+    let closestIndex = 0;
+
+    for (let i = 0; i < coords.length; i++) {
+        const coord = coords[i];
+        const dx = coord[0] - point[0];
+        const dy = coord[1] - point[1];
+        const dist = dx * dx + dy * dy;
+        if (dist < minDistance) {
+            minDistance = dist;
+            closestIndex = i;
+        }
+    }
+    return closestIndex;
+}
+
+function getPointOnPathAtProgress(path, progress) {
+    if (path.length === 0) return [0, 0];
+    if (path.length === 1) return path[0];
+
+    const segmentLengths = [];
+    let totalLength = 0;
+    for (let i = 0; i < path.length - 1; i++) {
+        const dx = path[i + 1][0] - path[i][0];
+        const dy = path[i + 1][1] - path[i][1];
+        const length = Math.sqrt(dx * dx + dy * dy);
+        segmentLengths.push(length);
+        totalLength += length;
+    }
+
+    if (totalLength === 0) return path[path.length - 1];
+
+    const targetLength = totalLength * progress;
+    let accumulated = 0;
+
+    for (let i = 0; i < segmentLengths.length; i++) {
+        const len = segmentLengths[i];
+        if (accumulated + len >= targetLength) {
+            const segmentProgress = (targetLength - accumulated) / len;
+            const start = path[i];
+            const end = path[i + 1];
+            const lng = start[0] + (end[0] - start[0]) * segmentProgress;
+            const lat = start[1] + (end[1] - start[1]) * segmentProgress;
+            return [lng, lat];
+        }
+        accumulated += len;
+    }
+
+    return path[path.length - 1];
+}
+
+function animateMarkerAlongPath(marker, path, duration) {
+    if (marker._animationFrameId) {
+        cancelAnimationFrame(marker._animationFrameId);
+    }
+
+    const startTime = performance.now();
+
+    function update() {
+        const elapsed = performance.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+
+        const targetLngLat = getPointOnPathAtProgress(path, progress);
+        marker.setLngLat(targetLngLat);
+
+        if (progress < 1) {
+            marker._animationFrameId = requestAnimationFrame(update);
+        } else {
+            marker._animationFrameId = null;
+        }
+    }
+
+    marker._animationFrameId = requestAnimationFrame(update);
+}
+
 function MockMapFallback({
     pickup,
     dropoff,
@@ -219,6 +296,8 @@ export function MapboxMap({
     const pickupMarkerRef = useRef(null);
     const dropoffMarkerRef = useRef(null);
     const driverMarkersRef = useRef([]);
+    const markersMapRef = useRef(new Map());
+    const hasFitBoundsRef = useRef(false);
     const locationSelectionTargetRef = useRef(locationSelectionTarget);
     const isMapPickerActiveRef = useRef(isMapPickerActive);
     const onLocationChangeRef = useRef(onLocationChange);
@@ -388,6 +467,13 @@ export function MapboxMap({
             dropoffMarkerRef.current = null;
             driverMarkersRef.current.forEach((marker) => marker.remove());
             driverMarkersRef.current = [];
+            for (const marker of markersMapRef.current.values()) {
+                if (marker._animationFrameId) {
+                    cancelAnimationFrame(marker._animationFrameId);
+                }
+                marker.remove();
+            }
+            markersMapRef.current.clear();
             mapRef.current?.remove();
             mapRef.current = null;
         };
@@ -503,23 +589,63 @@ export function MapboxMap({
     useEffect(() => {
         if (!mapRef.current) return;
 
-        driverMarkersRef.current.forEach((marker) => marker.remove());
-        driverMarkersRef.current = [];
+        const currentDriverIds = new Set(nearbyDrivers.map(d => d.driver_id || "driver"));
+
+        // Remove markers that are no longer in nearbyDrivers
+        for (const [id, marker] of markersMapRef.current.entries()) {
+            if (!currentDriverIds.has(id)) {
+                if (marker._animationFrameId) {
+                    cancelAnimationFrame(marker._animationFrameId);
+                }
+                marker.remove();
+                markersMapRef.current.delete(id);
+            }
+        }
+
+        const coordinates = getRouteCoordinates(route);
 
         nearbyDrivers.forEach((driver) => {
-            const dLng = Number(driver.longitude);
-            const dLat = Number(driver.latitude);
-            if (!dLng || !dLat || isNaN(dLng) || isNaN(dLat)) return;
+            const driverId = driver.driver_id || "driver";
+            const newLng = Number(driver.longitude);
+            const newLat = Number(driver.latitude);
+            if (!newLng || !newLat || isNaN(newLng) || isNaN(newLat)) return;
 
-            const marker = new mapboxgl.Marker({
-                element: makeDriverMarkerElement(),
-            })
-                .setLngLat([dLng, dLat])
-                .addTo(mapRef.current);
+            let marker = markersMapRef.current.get(driverId);
 
-            driverMarkersRef.current.push(marker);
+            if (!marker) {
+                marker = new mapboxgl.Marker({
+                    element: makeDriverMarkerElement(),
+                })
+                    .setLngLat([newLng, newLat])
+                    .addTo(mapRef.current);
+                markersMapRef.current.set(driverId, marker);
+            } else {
+                const startLngLat = marker.getLngLat();
+                const startLng = startLngLat.lng;
+                const startLat = startLngLat.lat;
+
+                if (startLng === newLng && startLat === newLat) return;
+
+                let path = [];
+                if (coordinates.length > 0) {
+                    const startIdx = findClosestCoordinateIndex([startLng, startLat], coordinates);
+                    const endIdx = findClosestCoordinateIndex([newLng, newLat], coordinates);
+
+                    if (startIdx <= endIdx) {
+                        path = coordinates.slice(startIdx, endIdx + 1);
+                    }
+                }
+
+                if (path.length < 2) {
+                    path = [[startLng, startLat], [newLng, newLat]];
+                } else {
+                    path = [[startLng, startLat], ...path.slice(1, -1), [newLng, newLat]];
+                }
+
+                animateMarkerAlongPath(marker, path, 1500); // Animate smoothly over 1.5 seconds
+            }
         });
-    }, [nearbyDrivers]);
+    }, [nearbyDrivers, route]);
 
     useEffect(() => {
         if (!mapRef.current) return;
@@ -593,6 +719,13 @@ export function MapboxMap({
         }
     }, [surgeZones]);
 
+    const lastRouteRef = useRef(null);
+
+    useEffect(() => {
+        hasFitBoundsRef.current = false;
+        lastRouteRef.current = route;
+    }, [route]);
+
     useEffect(() => {
         if (!mapRef.current) return;
 
@@ -601,7 +734,17 @@ export function MapboxMap({
         function syncRouteLayer() {
             const sourceId = "route-preview";
             const layerId = "route-preview-line";
-            const coordinates = getRouteCoordinates(route);
+            let coordinates = getRouteCoordinates(route);
+
+            if (coordinates.length > 0 && nearbyDrivers.length > 0) {
+                const driver = nearbyDrivers[0];
+                const driverLng = Number(driver.longitude);
+                const driverLat = Number(driver.latitude);
+                if (driverLng && driverLat) {
+                    const closestIdx = findClosestCoordinateIndex([driverLng, driverLat], coordinates);
+                    coordinates = [[driverLng, driverLat], ...coordinates.slice(closestIdx + 1)];
+                }
+            }
 
             const data = {
                 type: "Feature",
@@ -642,21 +785,23 @@ export function MapboxMap({
                 });
             }
 
-            const bounds = new mapboxgl.LngLatBounds();
+            if (!hasFitBoundsRef.current) {
+                const bounds = new mapboxgl.LngLatBounds();
+                coordinates.forEach((coordinate) => bounds.extend(coordinate));
 
-            coordinates.forEach((coordinate) => bounds.extend(coordinate));
-
-            if (!bounds.isEmpty()) {
-                map.fitBounds(bounds, {
-                    padding: {
-                        top: 110,
-                        bottom: 180,
-                        left: 60,
-                        right: 60,
-                    },
-                    maxZoom: 14,
-                    duration: 700,
-                });
+                if (!bounds.isEmpty()) {
+                    map.fitBounds(bounds, {
+                        padding: {
+                            top: 110,
+                            bottom: 180,
+                            left: 60,
+                            right: 60,
+                        },
+                        maxZoom: 14,
+                        duration: 700,
+                    });
+                    hasFitBoundsRef.current = true;
+                }
             }
         }
 
@@ -665,7 +810,7 @@ export function MapboxMap({
         } else {
             map.once("load", syncRouteLayer);
         }
-    }, [route]);
+    }, [route, nearbyDrivers]);
 
     useEffect(() => {
         if (!mapRef.current || route || isMapPickerActive) return;

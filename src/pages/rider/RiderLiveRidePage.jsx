@@ -47,7 +47,7 @@ import {
   getRideFromResponse,
   getRouteFromResponse,
 } from "@/utils/apiShapes";
-import { toLiveRideView } from "@/utils/rideUi";
+import { toLiveRideView, formatUuid } from "@/utils/rideUi";
 import { MapboxMap } from "@/components/map/MapboxMap";
 import { useMapConfig } from "@/hooks/maps/useMapConfig";
 
@@ -177,7 +177,7 @@ function DriverInfoCard({ ride }) {
       <div className="flex items-center gap-3">
         <Avatar className="h-14 w-14 border border-[#E1E5EA]">
           <AvatarFallback className="bg-[#E8F7F4] text-base font-bold text-[#008C78]">
-            AR
+            {ride.driver_initials || "DR"}
           </AvatarFallback>
         </Avatar>
 
@@ -478,7 +478,7 @@ export default function RiderLiveRidePage() {
               </div>
 
               <Badge className="rounded-full bg-white px-3 py-2 text-[#101820] shadow-soft hover:bg-white">
-                ID {ride_id}
+                ID {formatUuid(ride_id)}
               </Badge>
             </div>
           </header>

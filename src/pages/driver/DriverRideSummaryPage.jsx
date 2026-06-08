@@ -28,7 +28,7 @@ import { LoadingState } from "@/common/LoadingState";
 import { useRide } from "@/hooks/rides/useRide";
 import { useRideReceipt } from "@/hooks/rides/useRideReceipt";
 import { getReceiptFromResponse, getRideFromResponse } from "@/utils/apiShapes";
-import { toDriverSummaryView } from "@/utils/rideUi";
+import { toDriverSummaryView, formatUuid } from "@/utils/rideUi";
 import { MapboxMap } from "@/components/map/MapboxMap";
 import { useMapConfig } from "@/hooks/maps/useMapConfig";
 
@@ -442,7 +442,7 @@ export default function DriverRideSummaryPage() {
               </div>
 
               <Badge className="rounded-full bg-[#E8F7F4] px-3 py-1.5 text-[#008C78] hover:bg-[#E8F7F4]">
-                ID {rideId}
+                ID {formatUuid(rideId)}
               </Badge>
             </div>
           </Card>

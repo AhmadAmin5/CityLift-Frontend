@@ -166,6 +166,18 @@ export function toReceiptView(receiptData, rideData) {
   const driver = receipt.driver || ride.driver || {};
   const vehicle = receipt.vehicle || ride.vehicle || {};
 
+  const toNum = (val, fallback = 0) => {
+    const num = Number(val);
+    return isNaN(num) ? fallback : num;
+  };
+
+  const getFareBreakdownVal = (breakdownField, fareField) => {
+    if (breakdownField !== undefined && breakdownField !== null) {
+      return toNum(breakdownField);
+    }
+    return toNum(fareField);
+  };
+
   return {
     receipt_number: receipt.receipt_number || receipt.id || "",
     issued_at: formatDateTime(receipt.issued_at || ride.completed_at),
@@ -199,14 +211,19 @@ export function toReceiptView(receiptData, rideData) {
     },
     fare: {
       currency: receipt.currency || fare.currency || "PKR",
-      final_fare: fareBreakdown.final_fare || fare.final_fare || 0,
-      base_fare: fareBreakdown.base_fare || fare.base_fare || 0,
-      distance_fare: fareBreakdown.distance_fare || 0,
-      duration_fare: fareBreakdown.duration_fare || 0,
-      waiting_fare: fareBreakdown.waiting_fare || 0,
-      traffic_delay_fare: fareBreakdown.traffic_delay_fare || 0,
-      surge_amount: fareBreakdown.surge_amount || 0,
-      discount_amount: fareBreakdown.discount_amount || 0,
+      final_fare: getFareBreakdownVal(fareBreakdown.final_fare, fare.final_fare),
+      base_fare: getFareBreakdownVal(fareBreakdown.base_fare, fare.base_fare),
+      distance_fare: getFareBreakdownVal(fareBreakdown.distance_fare, 0),
+      duration_fare: getFareBreakdownVal(fareBreakdown.duration_fare, 0),
+      waiting_fare: getFareBreakdownVal(fareBreakdown.waiting_fare, 0),
+      traffic_delay_fare: getFareBreakdownVal(fareBreakdown.traffic_delay_fare, 0),
+      surge_amount: getFareBreakdownVal(fareBreakdown.surge_amount, 0),
+      discount_amount: getFareBreakdownVal(
+        fareBreakdown.discount_amount !== undefined
+          ? fareBreakdown.discount_amount
+          : fareBreakdown.discount,
+        0
+      ),
     },
   };
 }
@@ -264,3 +281,13 @@ export function toRatingDriverView(ride) {
     plate_number: vehicle.plate_number || "",
   };
 }
+
+export function formatUuid(id) {
+  if (!id) return "";
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(id)) {
+    return id.split("-")[0].toUpperCase();
+  }
+  return id;
+}
+

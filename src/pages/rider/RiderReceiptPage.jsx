@@ -27,7 +27,7 @@ import { LoadingState } from "@/common/LoadingState";
 import { useRide } from "@/hooks/rides/useRide";
 import { useRideReceipt } from "@/hooks/rides/useRideReceipt";
 import { getReceiptFromResponse, getRideFromResponse } from "@/utils/apiShapes";
-import { toReceiptView } from "@/utils/rideUi";
+import { toReceiptView, formatUuid } from "@/utils/rideUi";
 
 
 
@@ -50,7 +50,7 @@ function ReceiptHero({ receipt }) {
           </h1>
 
           <p className="mt-2 text-sm text-[#4B5563]">
-            Receipt #{receipt.receipt_number}
+            Receipt #{formatUuid(receipt.receipt_number)}
           </p>
         </div>
 

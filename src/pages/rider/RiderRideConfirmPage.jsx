@@ -38,15 +38,6 @@ const VEHICLE_OPTIONS = [
         icon: Bike,
     },
     {
-        id: "mini",
-        label: "Mini",
-        api_vehicle_type: "car",
-        seats: 4,
-        eta_min: 3,
-        description: "Compact car, lower fares",
-        icon: Car,
-    },
-    {
         id: "rickshaw",
         label: "Rickshaw",
         api_vehicle_type: "rickshaw",
@@ -56,12 +47,12 @@ const VEHICLE_OPTIONS = [
         icon: Car,
     },
     {
-        id: "ac_car",
-        label: "AC Car",
+        id: "car",
+        label: "Car",
         api_vehicle_type: "car",
         seats: 4,
-        eta_min: 5,
-        description: "Comfort car with AC",
+        eta_min: 3,
+        description: "Comfortable standard rides",
         icon: Car,
     },
 ];
@@ -385,7 +376,7 @@ export default function RiderRideConfirmPage() {
     const riderNote = state.riderNote || "Call me when arrived";
     const rideType = state.rideType || "standard";
 
-    const [selectedOptionId, setSelectedOptionId] = useState("mini");
+    const [selectedOptionId, setSelectedOptionId] = useState("car");
     const [optionEstimates, setOptionEstimates] = useState({});
     const [routePreview, setRoutePreview] = useState(null);
     const [isLoadingEstimates, setIsLoadingEstimates] = useState(false);
@@ -394,7 +385,7 @@ export default function RiderRideConfirmPage() {
     const selectedOption = useMemo(() => {
         return (
             VEHICLE_OPTIONS.find((option) => option.id === selectedOptionId) ||
-            VEHICLE_OPTIONS[1]
+            VEHICLE_OPTIONS[2]
         );
     }, [selectedOptionId]);
 
