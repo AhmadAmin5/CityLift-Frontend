@@ -18,6 +18,8 @@ import { useReverseGeocode } from "@/hooks/maps/useReverseGeocode";
 
 import { getApiErrorMessage } from "@/api/client";
 import { hasValidCoordinates, normalizeLocation } from "@/utils/locationUtils";
+import { useRides } from "@/hooks/rides/useRides";
+import { getActiveRideRoute } from "@/utils/authRoutes";
 
 const LAHORE_DEFAULT_LOCATION = {
     latitude: 31.5204,
@@ -64,6 +66,21 @@ export default function RiderHomePage() {
     const surgeZones = surgeZonesQuery.data || [];
     const rider = riderQuery.data?.rider || riderQuery.data;
     const user = meQuery.data?.user;
+
+    const ridesQuery = useRides();
+    const riderRides = ridesQuery.data?.data || ridesQuery.data || [];
+
+    useEffect(() => {
+        const activeRide = riderRides.find((r) =>
+            ["searching_driver", "accepted", "arrived", "started"].includes(r.status)
+        );
+        if (activeRide) {
+            const route = getActiveRideRoute(activeRide, "rider");
+            if (route) {
+                navigate(route, { replace: true });
+            }
+        }
+    }, [riderRides, navigate]);
 
     useEffect(() => {
         const savedPlace = location.state?.saved_place;
@@ -186,7 +203,8 @@ export default function RiderHomePage() {
     const isInitialLoading =
         meQuery.isLoading ||
         riderQuery.isLoading ||
-        savedPlacesQuery.isLoading;
+        savedPlacesQuery.isLoading ||
+        ridesQuery.isLoading;
 
     const hasInitialError =
         meQuery.isError ||

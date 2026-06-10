@@ -164,68 +164,19 @@ function DriverReceiptCard({ receipt }) {
 }
 
 function FareBreakdownCard({ receipt }) {
-  const rows = [
-    {
-      label: "Base fare",
-      value: receipt.fare.base_fare,
-    },
-    {
-      label: "Distance fare",
-      value: receipt.fare.distance_fare,
-    },
-    {
-      label: "Duration fare",
-      value: receipt.fare.duration_fare,
-    },
-    {
-      label: "Traffic delay",
-      value: receipt.fare.traffic_delay_fare,
-    },
-    {
-      label: "Surge amount",
-      value: receipt.fare.surge_amount,
-      warning: true,
-    },
-    {
-      label: "Discount",
-      value: -receipt.fare.discount_amount,
-      success: true,
-    },
-  ];
-
   return (
     <Card className="rounded-[24px] border-[#E1E5EA] bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-[#101820]">Fare breakdown</h2>
+          <h2 className="text-lg font-bold text-[#101820]">Fare</h2>
           <p className="mt-1 text-sm text-[#4B5563]">
-            Final fare generated after ride completion.
+            Final fare for this ride.
           </p>
         </div>
 
         <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#F1FBF9]">
           <Sparkles className="h-5 w-5 text-[#008C78]" />
         </div>
-      </div>
-
-      <div className="mt-4 space-y-3">
-        {rows.map((row) => (
-          <div key={row.label} className="flex items-center justify-between">
-            <p className="text-sm text-[#4B5563]">{row.label}</p>
-            <p
-              className={
-                row.success
-                  ? "text-sm font-bold text-[#16A34A]"
-                  : row.warning
-                    ? "text-sm font-bold text-[#C2410C]"
-                    : "text-sm font-bold text-[#101820]"
-              }
-            >
-              {row.value < 0 ? "-" : ""}
-              {receipt.fare.currency} {Math.abs(row.value)}
-            </p>
-          </div>
-        ))}
       </div>
 
       <Separator className="my-4 bg-[#E1E5EA]" />
@@ -316,7 +267,7 @@ export default function RiderReceiptPage() {
           </button>
 
           <div className="text-center">
-            <p className="text-sm font-semibold text-[#008C78]">RideFlow</p>
+            <p className="text-sm font-semibold text-[#008C78]">CityLift</p>
             <h1 className="text-lg font-bold text-[#101820]">Receipt</h1>
           </div>
 

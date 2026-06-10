@@ -110,7 +110,7 @@ export default function OtpVerificationPage() {
             </div>
 
             <div>
-              <p className="text-lg font-bold text-[#101820]">RideFlow</p>
+              <p className="text-lg font-bold text-[#101820]">CityLift</p>
               <p className="text-sm font-medium text-[#4B5563]">
                 Account verification
               </p>
@@ -127,8 +127,8 @@ export default function OtpVerificationPage() {
             </h1>
 
             <p className="mt-2 text-base leading-6 text-[#4B5563]">
-              We sent a mock OTP to {destination}. For the lab demo, use{" "}
-              <span className="font-semibold text-[#101820]">123456</span>.
+              Please enter the 6-digit verification code sent to{" "}
+              <span className="font-semibold text-[#101820]">{destination}</span> to complete your verification.
             </p>
           </div>
         </header>

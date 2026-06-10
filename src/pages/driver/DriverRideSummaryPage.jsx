@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   Banknote,
   CalendarClock,
-  Car,
   CheckCircle2,
   Clock,
   Flag,
@@ -59,58 +58,6 @@ function SummaryHero({ summary }) {
 
         <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[22px] bg-white shadow-soft">
           <Wallet className="h-8 w-8 text-[#008C78]" />
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function CompletedMapMock() {
-  return (
-    <Card className="overflow-hidden rounded-[28px] border-[#E1E5EA] bg-[#EAF2F0] p-0 shadow-sm">
-      <div className="relative h-[220px]">
-        <div className="absolute inset-0 opacity-70">
-          <div className="absolute left-[-20%] top-8 h-24 w-[140%] rotate-[-12deg] rounded-full border-[16px] border-white/80" />
-          <div className="absolute left-[-10%] top-28 h-20 w-[120%] rotate-[18deg] rounded-full border-[12px] border-white/70" />
-          <div className="absolute bottom-8 left-[-15%] h-20 w-[130%] rotate-[-5deg] rounded-full border-[10px] border-white/70" />
-        </div>
-
-        <div className="absolute left-[24%] top-[64%] h-[6px] w-[44%] rotate-[-18deg] rounded-full bg-[#008C78]" />
-        <div className="absolute left-[48%] top-[48%] h-[6px] w-[28%] rotate-[20deg] rounded-full bg-[#008C78]" />
-
-        <div className="absolute left-[22%] top-[68%] z-20 -translate-x-1/2 -translate-y-full">
-          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#008C78] text-white shadow-card">
-            <MapPin className="h-6 w-6" />
-          </div>
-          <div className="mx-auto mt-1 h-2 w-2 rounded-full bg-[#008C78]" />
-        </div>
-
-        <div className="absolute right-[16%] top-[36%] z-20 -translate-x-1/2 -translate-y-full">
-          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#101820] text-white shadow-card">
-            <Flag className="h-5 w-5" />
-          </div>
-          <div className="mx-auto mt-1 h-2 w-2 rounded-full bg-[#101820]" />
-        </div>
-
-        <div className="absolute left-[55%] top-[48%] z-30 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-4 border-white bg-[#008C78] text-white shadow-card">
-          <Car className="h-6 w-6" />
-        </div>
-
-        <div className="absolute bottom-4 left-4 right-4 rounded-[20px] border border-white/70 bg-white/95 p-3 shadow-soft backdrop-blur">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-bold text-[#101820]">
-                Completed route
-              </p>
-              <p className="mt-0.5 text-xs text-[#4B5563]">
-                Gulberg to Johar Town
-              </p>
-            </div>
-
-            <Badge className="rounded-full bg-[#E8F7F4] px-3 py-1.5 text-[#008C78] hover:bg-[#E8F7F4]">
-              12.4 km
-            </Badge>
-          </div>
         </div>
       </div>
     </Card>
@@ -253,29 +200,8 @@ function RouteSummaryCard({ summary }) {
 function EarningsBreakdownCard({ summary }) {
   const rows = [
     {
-      label: "Base fare",
-      value: summary.fare.base_fare,
-    },
-    {
-      label: "Distance fare",
-      value: summary.fare.distance_fare,
-    },
-    {
-      label: "Duration fare",
-      value: summary.fare.duration_fare,
-    },
-    {
-      label: "Waiting fare",
-      value: summary.fare.waiting_fare,
-    },
-    {
-      label: "Traffic delay fare",
-      value: summary.fare.traffic_delay_fare,
-    },
-    {
-      label: "Surge amount",
-      value: summary.fare.surge_amount,
-      highlight: true,
+      label: "Fare",
+      value: summary.fare.final_fare,
     },
     {
       label: "Platform fee",
@@ -307,11 +233,9 @@ function EarningsBreakdownCard({ summary }) {
             <p className="text-sm text-[#4B5563]">{row.label}</p>
             <p
               className={
-                row.highlight
-                  ? "text-sm font-bold text-[#C2410C]"
-                  : row.muted
-                    ? "text-sm font-bold text-[#8A9099]"
-                    : "text-sm font-bold text-[#101820]"
+                row.muted
+                  ? "text-sm font-bold text-[#8A9099]"
+                  : "text-sm font-bold text-[#101820]"
               }
             >
               {row.value < 0 ? "-" : ""}
@@ -324,7 +248,7 @@ function EarningsBreakdownCard({ summary }) {
       <Separator className="my-4 bg-[#E1E5EA]" />
 
       <div className="flex items-center justify-between">
-        <p className="text-base font-bold text-[#101820]">Your earnings</p>
+        <p className="text-base font-bold text-[#101820]">Final earning</p>
         <p className="text-xl font-bold tracking-[-0.03em] text-[#101820]">
           {summary.fare.currency} {summary.fare.driver_earnings}
         </p>
@@ -403,7 +327,7 @@ export default function DriverRideSummaryPage() {
           </Button>
 
           <div className="text-center">
-            <p className="text-sm font-semibold text-[#008C78]">RideFlow</p>
+            <p className="text-sm font-semibold text-[#008C78]">CityLift</p>
             <h1 className="text-lg font-bold text-[#101820]">Ride summary</h1>
           </div>
 

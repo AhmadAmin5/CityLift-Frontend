@@ -13,6 +13,7 @@ function invalidateRide(queryClient, rideId) {
   queryClient.invalidateQueries({ queryKey: queryKeys.rideLive(rideId) });
   queryClient.invalidateQueries({ queryKey: queryKeys.rideReceipt(rideId) });
   queryClient.invalidateQueries({ queryKey: queryKeys.rides({}) });
+  queryClient.invalidateQueries({ queryKey: ["driver"] });
 }
 
 export function useArriveRide(rideId) {

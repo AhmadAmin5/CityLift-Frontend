@@ -415,6 +415,7 @@ export default function DriverEarningsPage() {
     const platformFee = summary.estimated_platform_commission || 0;
     const ridesCount = summary.total_rides || 0;
     const averagePerRide = ridesCount > 0 ? Math.round(totalEarnings / ridesCount) : 0;
+    const onlineHours = summary.online_hours || 0;
 
     const completedRides = driverRides.filter((r) => {
       if (r.status !== "completed") return false;
@@ -438,7 +439,7 @@ export default function DriverEarningsPage() {
       gross_fare: grossFare,
       platform_fee: platformFee,
       rides_count: ridesCount,
-      online_hours: 0,
+      online_hours: onlineHours,
       average_per_ride: averagePerRide,
       cash_collected: cashCollected,
       wallet_payout: walletPayout,
@@ -543,7 +544,7 @@ export default function DriverEarningsPage() {
           </Button>
 
           <div className="text-center">
-            <p className="text-sm font-semibold text-[#008C78]">RideFlow</p>
+            <p className="text-sm font-semibold text-[#008C78]">CityLift</p>
             <h1 className="text-lg font-bold text-[#101820]">Earnings</h1>
           </div>
 

@@ -57,6 +57,7 @@ import { createSocket } from "@/socket/socket";
 import { getDriverFromResponse } from "@/utils/apiShapes";
 
 import { useRides } from "@/hooks/rides/useRides";
+import { getActiveRideRoute } from "@/utils/authRoutes";
 
 function getInitials(name = "Driver") {
   return name
@@ -614,9 +615,9 @@ function DriverStatsGrid({ stats }) {
       <Card className="rounded-[22px] border-[#E1E5EA] bg-white p-4 shadow-sm">
         <Car className="h-5 w-5 text-[#008C78]" />
         <p className="mt-3 text-2xl font-bold tracking-[-0.03em] text-[#101820]">
-          {stats.today_rides}
+          {stats.total_rides}
         </p>
-        <p className="mt-1 text-sm text-[#4B5563]">Today rides</p>
+        <p className="mt-1 text-sm text-[#4B5563]">Total rides</p>
       </Card>
 
       <Card className="rounded-[22px] border-[#E1E5EA] bg-white p-4 shadow-sm">
@@ -986,6 +987,18 @@ export default function DriverHomePage() {
   const isOnline = Boolean(driver.is_available);
 
   const driverRides = ridesQuery.data?.data || ridesQuery.data || [];
+
+  useEffect(() => {
+    const activeRide = driverRides.find((r) =>
+      ["accepted", "arrived", "started"].includes(r.status)
+    );
+    if (activeRide) {
+      const route = getActiveRideRoute(activeRide, "driver");
+      if (route) {
+        navigate(route, { replace: true });
+      }
+    }
+  }, [driverRides, navigate]);
   const stats = useMemo(() => {
     const completedRides = driverRides.filter(r => r.status === "completed");
     const todayStart = new Date();
@@ -995,19 +1008,16 @@ export default function DriverHomePage() {
       const dateVal = r.completed_at || r.updated_at;
       return dateVal ? new Date(dateVal) >= todayStart : false;
     });
-    const todayEarnings = todayCompleted.reduce((sum, r) => sum + Number(r.fare?.final_fare || 0), 0);
-    
-    const totalOffers = driverRides.length;
-    const acceptedOffers = driverRides.filter(r => r.status !== "cancelled" && r.status !== "rejected").length;
-    const acceptanceRate = totalOffers > 0 ? Math.round((acceptedOffers / totalOffers) * 100) : 100;
+    const todayEarnings = todayCompleted.reduce((sum, r) => sum + Math.round(Number(r.fare?.final_fare || 0) * 0.8), 0);
 
     return {
       today_earnings: todayEarnings,
       today_rides: todayCompleted.length,
-      online_hours: 0,
-      acceptance_rate: acceptanceRate,
+      total_rides: driver.total_rides || 0,
+      online_hours: driver.online_hours || 0,
+      acceptance_rate: driver.acceptance_rate || 100,
     };
-  }, [driverRides]);
+  }, [driverRides, driver.total_rides, driver.online_hours, driver.acceptance_rate]);
 
   const canGoOnline = useMemo(() => {
     const approved = driver.approval_status === "approved";
@@ -1044,6 +1054,7 @@ export default function DriverHomePage() {
 
   useEffect(() => {
     let watchId = null;
+    let active = true;
 
     async function startWatching() {
       if (!isOnline) return;
@@ -1059,7 +1070,7 @@ export default function DriverHomePage() {
           }
         }
 
-        watchId = await PlatformGeolocation.watchPosition(
+        const id = await PlatformGeolocation.watchPosition(
           {
             enableHighAccuracy: true,
             timeout: 15000,
@@ -1070,6 +1081,7 @@ export default function DriverHomePage() {
               console.error("Continuous tracking error:", err);
               return;
             }
+            if (!active) return;
             if (position?.coords) {
               const nextLoc = {
                 latitude: Number(position.coords.latitude),
@@ -1105,6 +1117,12 @@ export default function DriverHomePage() {
             }
           }
         );
+
+        if (!active) {
+          PlatformGeolocation.clearWatch({ id: id });
+        } else {
+          watchId = id;
+        }
       } catch (error) {
         console.error("Failed to start watching location:", error);
       }
@@ -1113,6 +1131,7 @@ export default function DriverHomePage() {
     startWatching();
 
     return () => {
+      active = false;
       if (watchId !== null) {
         PlatformGeolocation.clearWatch({ id: watchId });
       }
@@ -1206,7 +1225,7 @@ export default function DriverHomePage() {
     }
   }
 
-  if (driverQuery.isLoading) {
+  if (driverQuery.isLoading || ridesQuery.isLoading) {
     return (
       <main className="min-h-screen bg-white px-6 pt-24">
         <LoadingState label="Loading driver home..." />

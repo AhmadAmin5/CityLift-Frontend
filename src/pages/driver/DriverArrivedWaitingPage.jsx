@@ -450,6 +450,7 @@ export default function DriverArrivedWaitingPage() {
 
   useEffect(() => {
     let watchId = null;
+    let active = true;
 
     async function startWatching() {
       if (!ride_id) return;
@@ -464,7 +465,7 @@ export default function DriverArrivedWaitingPage() {
           }
         }
 
-        watchId = await PlatformGeolocation.watchPosition(
+        const id = await PlatformGeolocation.watchPosition(
           {
             enableHighAccuracy: true,
             timeout: 15000,
@@ -475,6 +476,7 @@ export default function DriverArrivedWaitingPage() {
               console.error("Continuous tracking error:", err);
               return;
             }
+            if (!active) return;
             if (position?.coords) {
               const nextLoc = {
                 latitude: Number(position.coords.latitude),
@@ -537,6 +539,12 @@ export default function DriverArrivedWaitingPage() {
             }
           }
         );
+
+        if (!active) {
+          PlatformGeolocation.clearWatch({ id: id });
+        } else {
+          watchId = id;
+        }
       } catch (error) {
         console.error("Failed to start watching location:", error);
       }
@@ -545,6 +553,7 @@ export default function DriverArrivedWaitingPage() {
     startWatching();
 
     return () => {
+      active = false;
       if (watchId !== null) {
         PlatformGeolocation.clearWatch({ id: watchId });
       }

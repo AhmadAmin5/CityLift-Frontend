@@ -727,7 +727,7 @@ export default function DriverVehiclesPage() {
           </Button>
 
           <div className="text-center">
-            <p className="text-sm font-semibold text-[#008C78]">RideFlow</p>
+            <p className="text-sm font-semibold text-[#008C78]">CityLift</p>
             <h1 className="text-lg font-bold text-[#101820]">Vehicles</h1>
           </div>
 

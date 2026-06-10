@@ -4,12 +4,19 @@ import { Car, Loader2 } from "lucide-react";
 
 import { useMe } from "@/hooks/auth/useMe";
 import { clearAccessToken, getAccessToken } from "@/utils/tokenStorage";
-import { getHomeRouteForRole } from "@/utils/authRoutes";
+import { getHomeRouteForRole, getActiveRideRoute } from "@/utils/authRoutes";
+import { useRides } from "@/hooks/rides/useRides";
 
 export default function SplashPage() {
   const navigate = useNavigate();
   const token = getAccessToken();
   const { data, isLoading, isError } = useMe();
+  const role = data?.user?.role;
+
+  const ridesQuery = useRides(
+    role === "driver" ? { role: "driver" } : undefined,
+    { enabled: !!role && (role === "rider" || role === "driver") }
+  );
 
   useEffect(() => {
     if (!token) {
@@ -23,10 +30,38 @@ export default function SplashPage() {
       return;
     }
 
-    if (data?.user?.role) {
-      navigate(getHomeRouteForRole(data.user.role), { replace: true });
+    if (!role) return;
+
+    if (role === "admin") {
+      navigate(getHomeRouteForRole(role), { replace: true });
+      return;
     }
-  }, [token, data, isError, navigate]);
+
+    if (role === "rider" || role === "driver") {
+      if (ridesQuery.isLoading && !ridesQuery.isError) return;
+
+      const rides = ridesQuery.data?.data || ridesQuery.data || [];
+      const activeRide = rides.find((r) => {
+        if (role === "rider") {
+          return ["searching_driver", "accepted", "arrived", "started"].includes(
+            r.status
+          );
+        } else {
+          return ["accepted", "arrived", "started"].includes(r.status);
+        }
+      });
+
+      if (activeRide) {
+        const route = getActiveRideRoute(activeRide, role);
+        if (route) {
+          navigate(route, { replace: true });
+          return;
+        }
+      }
+
+      navigate(getHomeRouteForRole(role), { replace: true });
+    }
+  }, [token, data, isError, role, navigate, ridesQuery.isLoading, ridesQuery.isError, ridesQuery.data]);
 
   return (
     <main className="min-h-screen bg-white">
@@ -36,11 +71,11 @@ export default function SplashPage() {
         </div>
 
         <h1 className="mt-5 text-[34px] font-bold tracking-[-0.04em] text-[#101820]">
-          RideFlow
+          CityLift
         </h1>
 
         <p className="mt-2 text-center text-base leading-6 text-[#4B5563]">
-          Reliable rides, simple booking, smooth demo flow.
+          Reliable rides, simple booking, and seamless navigation.
         </p>
 
         <div className="mt-8 flex items-center gap-2 text-sm font-medium text-[#4B5563]">

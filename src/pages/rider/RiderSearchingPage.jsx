@@ -333,7 +333,7 @@ export default function RiderSearchingPage() {
 
                   <div>
                     <p className="text-xs font-semibold text-[#008C78]">
-                      RideFlow
+                      CityLift
                     </p>
                     <p className="text-sm font-bold text-[#101820]">
                       Finding driver

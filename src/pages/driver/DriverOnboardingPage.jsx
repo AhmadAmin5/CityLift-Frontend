@@ -317,7 +317,7 @@ function ApprovalTimeline({ approvalStatus }) {
     },
     {
       title: "Admin review",
-      description: "RideFlow verifies documents and vehicle details.",
+      description: "CityLift verifies documents and vehicle details.",
       status: approvalStatus === "approved" ? "approved" : "pending",
     },
     {
@@ -518,7 +518,7 @@ export default function DriverOnboardingPage() {
           </Button>
 
           <div className="text-center">
-            <p className="text-sm font-semibold text-[#008C78]">RideFlow</p>
+            <p className="text-sm font-semibold text-[#008C78]">CityLift</p>
             <h1 className="text-lg font-bold text-[#101820]">Driver setup</h1>
           </div>
 

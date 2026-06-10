@@ -79,6 +79,8 @@ export const db = {
       total_rides: 15,
       is_available: false,
       approval_status: "approved",
+      online_accumulated_ms: 16200000,
+      online_session_start: null,
     },
   ],
 
@@ -327,8 +329,25 @@ export function getCurrentDriver(user) {
 export function getDriverWithRelations(driver) {
   if (!driver) return null;
   const user = db.users.find((item) => item.id === driver.user_id);
+
+  // Dynamic online hours calculation
+  const totalMs = (driver.online_accumulated_ms || 0) + 
+    (driver.is_available && driver.online_session_start ? (Date.now() - new Date(driver.online_session_start).getTime()) : 0);
+  const onlineHours = Math.round((totalMs / 3600000) * 10) / 10;
+
+  // Dynamic acceptance rate calculation
+  const driverOffers = db.rideOffers.filter((o) => o.driver_id === driver.id);
+  const accepted = driverOffers.filter((o) => o.status === "accepted").length;
+  const baselineAccepted = driver.total_rides || 15;
+  const baselineTotal = Math.round(baselineAccepted * 1.07) || 16;
+  const total = baselineTotal + driverOffers.length;
+  const totalAccepted = baselineAccepted + accepted;
+  const acceptanceRate = total > 0 ? Math.round((totalAccepted / total) * 100) : 100;
+
   return {
     ...driver,
+    online_hours: onlineHours,
+    acceptance_rate: acceptanceRate,
     user: publicUser(user),
     active_vehicle:
       db.vehicles.find(

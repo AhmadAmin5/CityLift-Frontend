@@ -1,6 +1,6 @@
 {
   "appId": "com.project.citylift",
-  "appName": "RideFlow",
+  "appName": "CityLift",
   "webDir": "dist",
    "backgroundColor": "#FFFFFF",
   "android": {

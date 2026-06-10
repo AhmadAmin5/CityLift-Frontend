@@ -122,7 +122,7 @@ function StarRating({ rating, onChange }) {
         <p className="mt-1 text-sm text-[#8A9099]">
           {rating === 5
             ? "Glad the ride went great."
-            : "Your feedback helps improve RideFlow."}
+            : "Your feedback helps improve CityLift."}
         </p>
       </div>
     </Card>
@@ -184,7 +184,7 @@ function CommentCard({ comment, onChange }) {
             Add a comment
           </h2>
           <p className="mt-0.5 text-sm text-[#4B5563]">
-            Optional, but helpful for the demo.
+            Optional, but helpful for improving service.
           </p>
         </div>
       </div>
@@ -242,7 +242,7 @@ function ThankYouState({ onDone }) {
           </h1>
 
           <p className="mt-3 text-base leading-6 text-[#4B5563]">
-            Your feedback helps keep RideFlow safe, reliable, and useful for
+            Your feedback helps keep CityLift safe, reliable, and useful for
             everyday rides.
           </p>
 
@@ -374,7 +374,7 @@ export default function RiderRatingPage() {
           </button>
 
           <div className="text-center">
-            <p className="text-sm font-semibold text-[#008C78]">RideFlow</p>
+            <p className="text-sm font-semibold text-[#008C78]">CityLift</p>
             <h1 className="text-lg font-bold text-[#101820]">Rate driver</h1>
           </div>
 
@@ -405,11 +405,11 @@ export default function RiderRatingPage() {
 
               <div>
                 <p className="text-sm font-bold text-[#101820]">
-                  Ratings help improve RideFlow
+                  Ratings help improve CityLift
                 </p>
                 <p className="mt-1 text-sm leading-5 text-[#4B5563]">
                   Your rating is used to improve driver quality and rider safety
-                  in the demo system.
+                  across the platform.
                 </p>
               </div>
             </div>

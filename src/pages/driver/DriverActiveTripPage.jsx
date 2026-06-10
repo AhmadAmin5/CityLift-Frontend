@@ -376,6 +376,12 @@ export default function DriverActiveTripPage() {
   const [driverCoords, setDriverCoords] = useState(null);
   const lastEmitTimeRef = useRef(0);
 
+  const etaMinRef = useRef(10);
+  const distanceRemainingRef = useRef(5.0);
+  const dropoffLatRef = useRef(null);
+  const dropoffLonRef = useRef(null);
+  const hasTriggeredGeofenceRef = useRef(false);
+
   const rideQuery = useRide(ride_id);
   const liveQuery = useRideLive(ride_id);
   const routeQuery = useRideRoute(ride_id, "pickup_to_dropoff");
@@ -389,6 +395,31 @@ export default function DriverActiveTripPage() {
   const route = getRouteFromResponse(routeQuery.data);
   const ride = toDriverTripView(rideData, liveState, route);
   const rideId = ride_id || ride.ride_id;
+
+  useEffect(() => {
+    if (ride?.trip?.eta_min !== undefined) {
+      etaMinRef.current = ride.trip.eta_min;
+    }
+  }, [ride?.trip?.eta_min]);
+
+  useEffect(() => {
+    if (ride?.trip?.distance_remaining_km !== undefined) {
+      distanceRemainingRef.current = ride.trip.distance_remaining_km;
+    }
+  }, [ride?.trip?.distance_remaining_km]);
+
+  useEffect(() => {
+    if (rideData?.dropoff?.latitude !== undefined) {
+      dropoffLatRef.current = rideData.dropoff.latitude;
+    }
+    if (rideData?.dropoff?.longitude !== undefined) {
+      dropoffLonRef.current = rideData.dropoff.longitude;
+    }
+  }, [rideData?.dropoff?.latitude, rideData?.dropoff?.longitude]);
+
+  useEffect(() => {
+    hasTriggeredGeofenceRef.current = hasTriggeredGeofence;
+  }, [hasTriggeredGeofence]);
 
   useEffect(() => {
     if (rideId) {
@@ -467,6 +498,7 @@ export default function DriverActiveTripPage() {
 
   useEffect(() => {
     let watchId = null;
+    let active = true;
 
     async function startWatching() {
       if (!ride_id) return;
@@ -481,7 +513,7 @@ export default function DriverActiveTripPage() {
           }
         }
 
-        watchId = await PlatformGeolocation.watchPosition(
+        const id = await PlatformGeolocation.watchPosition(
           {
             enableHighAccuracy: true,
             timeout: 15000,
@@ -492,6 +524,7 @@ export default function DriverActiveTripPage() {
               console.error("Continuous tracking error:", err);
               return;
             }
+            if (!active) return;
             if (position?.coords) {
               const nextLoc = {
                 latitude: Number(position.coords.latitude),
@@ -501,8 +534,8 @@ export default function DriverActiveTripPage() {
 
               const speed_kmph = position.coords.speed ? Math.round(position.coords.speed * 3.6) : 0;
               const heading = position.coords.heading || 90;
-              const eta_min = ride.trip?.eta_min || 10;
-              const distance_remaining_km = ride.trip?.distance_remaining_km || 5.0;
+              const eta_min = etaMinRef.current;
+              const distance_remaining_km = distanceRemainingRef.current;
 
               // 1. Calculate and accumulate local distance
               const lastLatStr = localStorage.getItem(`last_latitude_${ride_id}`);
@@ -531,8 +564,8 @@ export default function DriverActiveTripPage() {
               }
 
               // 3. Geofence proximity auto-complete check
-              const dropoffLat = rideData?.dropoff?.latitude;
-              const dropoffLon = rideData?.dropoff?.longitude;
+              const dropoffLat = dropoffLatRef.current;
+              const dropoffLon = dropoffLonRef.current;
               let isNearDestination = false;
 
               if (dropoffLat && dropoffLon) {
@@ -551,9 +584,11 @@ export default function DriverActiveTripPage() {
                 isNearDestination = true;
               }
 
-              if (isNearDestination && !hasTriggeredGeofence) {
-                setHasTriggeredGeofence(true);
-                setShowAutoCompleteModal(true);
+              if (isNearDestination && !hasTriggeredGeofenceRef.current) {
+                if (active) {
+                  setHasTriggeredGeofence(true);
+                  setShowAutoCompleteModal(true);
+                }
               }
 
               // 4. Throttle emissions to once every 5 seconds
@@ -609,6 +644,12 @@ export default function DriverActiveTripPage() {
             }
           }
         );
+
+        if (!active) {
+          PlatformGeolocation.clearWatch({ id: id });
+        } else {
+          watchId = id;
+        }
       } catch (error) {
         console.error("Failed to start watching location:", error);
       }
@@ -617,11 +658,12 @@ export default function DriverActiveTripPage() {
     startWatching();
 
     return () => {
+      active = false;
       if (watchId !== null) {
         PlatformGeolocation.clearWatch({ id: watchId });
       }
     };
-  }, [ride_id, ride.trip?.eta_min, ride.trip?.distance_remaining_km, rideData?.dropoff?.latitude, rideData?.dropoff?.longitude, hasTriggeredGeofence]);
+  }, [ride_id]);
 
   async function handleCompleteRide() {
     try {

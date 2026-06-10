@@ -7,36 +7,18 @@ import {
     Lock,
     Mail,
     UserRound,
-    ShieldCheck,
     Loader2,
     Icon,
-    MessageSquareText,
 } from "lucide-react";
 import { steeringWheel } from "@lucide/lab";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 
 import { useLogin } from "@/hooks/auth/useLogin";
 import { getApiErrorMessage } from "@/api/client";
 import { getHomeRouteForRole } from "@/utils/authRoutes";
-
-const DEMO_CREDENTIALS = {
-    rider: {
-        email_or_phone: "rider@test.com",
-        password: "password123",
-    },
-    driver: {
-        email_or_phone: "driver@test.com",
-        password: "password123",
-    },
-    admin: {
-        email_or_phone: "admin@test.com",
-        password: "password123",
-    },
-};
 
 export default function LoginPage() {
     const navigate = useNavigate();
@@ -59,11 +41,6 @@ export default function LoginPage() {
             ...current,
             [field]: value,
         }));
-    }
-
-    function fillDemo(role) {
-        setSelectedRole(role);
-        setValues(DEMO_CREDENTIALS[role]);
     }
 
     function validateForm() {
@@ -116,29 +93,16 @@ export default function LoginPage() {
                     </div>
 
                     <h1 className="mt-3 text-[32px] font-bold leading-10 tracking-[-0.03em] text-[#101820]">
-                        RideFlow
+                        CityLift
                     </h1>
                 </header>
-
-                <div className="mt-8 rounded-[28px] border border-[#E1E5EA] bg-[#F1FBF9] p-5">
-                    <div className="relative mx-auto h-[120px] max-w-[280px]">
-                        <div className="absolute left-5 top-8 h-12 w-12 rounded-full bg-white shadow-soft" />
-                        <div className="absolute right-4 top-2 h-16 w-16 rounded-full bg-white/80" />
-                        <div className="absolute bottom-2 left-1/2 h-14 w-40 -translate-x-1/2 rounded-[22px] bg-[#008C78] shadow-card">
-                            <div className="absolute left-4 top-4 h-5 w-5 rounded-full bg-white" />
-                            <div className="absolute right-4 top-4 h-5 w-5 rounded-full bg-white" />
-                            <div className="absolute left-1/2 top-3 h-5 w-16 -translate-x-1/2 rounded-full bg-[#E8F7F4]" />
-                        </div>
-                        <div className="absolute bottom-0 left-0 h-1 w-full rounded-full bg-[#D8F0EC]" />
-                    </div>
-                </div>
 
                 <div className="mt-7">
                     <h2 className="text-[38px] font-bold leading-[44px] tracking-[-0.04em] text-[#101820]">
                         Welcome back
                     </h2>
                     <p className="mt-2 text-[18px] leading-7 text-[#4B5563]">
-                        Sign in to book rides, drive, or manage the demo.
+                        Sign in to book rides, drive, or manage the platform.
                     </p>
                 </div>
 
@@ -225,7 +189,7 @@ export default function LoginPage() {
                             type="button"
                             onClick={() =>
                                 toast.info(
-                                    "Forgot password is not enabled in demo.",
+                                    "Forgot password functionality is currently unavailable. Please contact system support.",
                                 )
                             }
                             className="text-sm font-semibold text-[#008C78]"
@@ -248,67 +212,11 @@ export default function LoginPage() {
                             "Log in"
                         )}
                     </Button>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                            if (!values.email_or_phone.trim()) {
-                                toast.error("Enter your email or phone first");
-                                return;
-                            }
-
-                            toast.info(
-                                "Log in first, then verify OTP in this demo flow.",
-                            );
-                        }}
-                        className="h-[52px] w-full rounded-[14px] border-[#E1E5EA] bg-white text-base font-semibold text-[#101820]"
-                    >
-                        <MessageSquareText className="mr-2 h-5 w-5 text-[#008C78]" />
-                        Continue with OTP
-                    </Button>
                 </form>
-
-                <div className="mt-6 flex items-center gap-4">
-                    <Separator className="flex-1 bg-[#E1E5EA]" />
-                    <span className="text-sm text-[#8A9099]">
-                        demo shortcuts
-                    </span>
-                    <Separator className="flex-1 bg-[#E1E5EA]" />
-                </div>
-
-                <div className="mt-4 grid grid-cols-3 gap-3">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => fillDemo("rider")}
-                        className="h-[52px] rounded-[14px] border-[#E1E5EA] bg-white text-sm font-semibold text-[#101820]"
-                    >
-                        Rider
-                    </Button>
-
-                    <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => fillDemo("driver")}
-                        className="h-[52px] rounded-[14px] border-[#E1E5EA] bg-white text-sm font-semibold text-[#101820]"
-                    >
-                        Driver
-                    </Button>
-
-                    <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => fillDemo("admin")}
-                        className="h-[52px] rounded-[14px] border-[#E1E5EA] bg-white text-sm font-semibold text-[#101820]"
-                    >
-                        <ShieldCheck className="mr-1 h-4 w-4 text-[#008C78]" />
-                        Admin
-                    </Button>
-                </div>
 
                 <div className="mt-auto pt-8 text-center">
                     <p className="text-[15px] font-medium text-[#4B5563]">
-                        New to RideFlow?{" "}
+                        New to CityLift?{" "}
                         <Link
                             to={signupRoute}
                             className="font-semibold text-[#008C78]"

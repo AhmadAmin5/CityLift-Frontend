@@ -2,21 +2,17 @@ import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
-  Bell,
   Camera,
   Car,
   CheckCircle2,
   ChevronRight,
   Edit3,
-  HelpCircle,
-  Lock,
   LogOut,
   Mail,
   Phone,
   ShieldCheck,
   Star,
   UserRound,
-  Wallet,
   XCircle,
   Loader2,
 } from "lucide-react";
@@ -57,39 +53,6 @@ import {
   useUpdateProfile,
   useUploadProfilePhoto,
 } from "@/hooks/shared/useProfileActions";
-
-const settingsItems = [
-  {
-    id: "personal",
-    title: "Personal information",
-    description: "Name, email, and phone",
-    icon: UserRound,
-  },
-  {
-    id: "payment",
-    title: "Payment methods",
-    description: "Cash and future wallet options",
-    icon: Wallet,
-  },
-  {
-    id: "notifications",
-    title: "Notifications",
-    description: "Ride updates and alerts",
-    icon: Bell,
-  },
-  {
-    id: "security",
-    title: "Security",
-    description: "Password and account safety",
-    icon: Lock,
-  },
-  {
-    id: "support",
-    title: "Help & support",
-    description: "Contact RideFlow support",
-    icon: HelpCircle,
-  },
-];
 
 function getRoleConfig(role) {
   if (role === "driver") {
@@ -306,49 +269,6 @@ function ContactInfoCard({ profile }) {
   );
 }
 
-function SettingsCard({ onSelect }) {
-  return (
-    <Card className="rounded-[24px] border-[#E1E5EA] bg-white p-4 shadow-sm">
-      <h2 className="text-lg font-bold text-[#101820]">Account</h2>
-
-      <div className="mt-4">
-        {settingsItems.map((item, index) => {
-          const Icon = item.icon;
-
-          return (
-            <div key={item.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(item)}
-                className="flex w-full items-center gap-3 rounded-[18px] p-3 text-left hover:bg-[#F7F8FA]"
-              >
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#F1FBF9]">
-                  <Icon className="h-5 w-5 text-[#008C78]" />
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-[#101820]">
-                    {item.title}
-                  </p>
-                  <p className="mt-0.5 truncate text-xs text-[#4B5563]">
-                    {item.description}
-                  </p>
-                </div>
-
-                <ChevronRight className="h-5 w-5 text-[#8A9099]" />
-              </button>
-
-              {index !== settingsItems.length - 1 ? (
-                <Separator className="my-1 bg-[#E1E5EA]" />
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-    </Card>
-  );
-}
-
 function EditProfileSheet({
   open,
   onOpenChange,
@@ -447,47 +367,6 @@ function EditProfileSheet({
   );
 }
 
-function SettingsInfoSheet({ selectedItem, onOpenChange }) {
-  const open = Boolean(selectedItem);
-
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="bottom"
-        className="rounded-t-[28px] border-[#E1E5EA] bg-white px-6 pb-6 pt-4"
-      >
-        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#D7DCE2]" />
-
-        <SheetHeader className="text-left">
-          <SheetTitle className="text-[24px] font-bold tracking-[-0.03em] text-[#101820]">
-            {selectedItem?.title}
-          </SheetTitle>
-
-          <SheetDescription className="text-base leading-6 text-[#4B5563]">
-            {selectedItem?.description}
-          </SheetDescription>
-        </SheetHeader>
-
-        <Card className="mt-6 rounded-[24px] border-[#E1E5EA] bg-[#F7F8FA] p-4 shadow-none">
-          <p className="text-sm leading-6 text-[#4B5563]">
-            This section is UI-only for now. Later, we can wire it to profile,
-            payments, notifications, support, or security APIs depending on the
-            feature.
-          </p>
-        </Card>
-
-        <Button
-          type="button"
-          onClick={() => onOpenChange(false)}
-          className="mt-5 h-14 w-full rounded-[14px] bg-[#008C78] text-base font-semibold text-white hover:bg-[#006F60]"
-        >
-          Done
-        </Button>
-      </SheetContent>
-    </Sheet>
-  );
-}
-
 export default function ProfilePage() {
   const navigate = useNavigate();
 
@@ -515,7 +394,6 @@ export default function ProfilePage() {
     phone: "",
   });
   const [editOpen, setEditOpen] = useState(false);
-  const [selectedSettingsItem, setSelectedSettingsItem] = useState(null);
   const [logoutOpen, setLogoutOpen] = useState(false);
 
   const rider = riderQuery.data?.rider || riderQuery.data;
@@ -620,7 +498,7 @@ export default function ProfilePage() {
           </Button>
 
           <div className="text-center">
-            <p className="text-sm font-semibold text-[#008C78]">RideFlow</p>
+            <p className="text-sm font-semibold text-[#008C78]">CityLift</p>
             <h1 className="text-lg font-bold text-[#101820]">Profile</h1>
           </div>
 
@@ -645,7 +523,6 @@ export default function ProfilePage() {
           />
           <ProfileStatsCard profile={profile} />
           <ContactInfoCard profile={profile} />
-          <SettingsCard onSelect={setSelectedSettingsItem} />
 
           <Card className="rounded-[24px] border-[#E1E5EA] bg-white p-4 shadow-sm">
             <button
@@ -676,13 +553,6 @@ export default function ProfilePage() {
           setProfileDraft={setProfileDraft}
           onSave={saveProfile}
           isSaving={updateProfileMutation.isPending}
-        />
-
-        <SettingsInfoSheet
-          selectedItem={selectedSettingsItem}
-          onOpenChange={(open) => {
-            if (!open) setSelectedSettingsItem(null);
-          }}
         />
 
         <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>

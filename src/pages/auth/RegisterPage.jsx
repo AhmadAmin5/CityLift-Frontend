@@ -48,7 +48,7 @@ export default function RegisterPage({ role = "rider" }) {
     if (isDriver) {
       return {
         icon: DriverIcon,
-        title: "Drive with RideFlow",
+        title: "Drive with CityLift",
         subtitle: "Create your driver account. Vehicle and documents come next.",
         submit: "Create driver account",
         loginText: "Already driving?",
@@ -146,7 +146,7 @@ export default function RegisterPage({ role = "rider" }) {
               <p className="text-sm font-semibold text-[#008C78]">
                 {copy.accentLabel}
               </p>
-              <p className="text-lg font-bold text-[#101820]">RideFlow</p>
+              <p className="text-lg font-bold text-[#101820]">CityLift</p>
             </div>
           </div>
 

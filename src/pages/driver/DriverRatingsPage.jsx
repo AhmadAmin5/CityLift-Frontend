@@ -130,7 +130,7 @@ function RatingDistributionCard({ summary }) {
 
       <div className="mt-5 space-y-3">
         {summary.distribution.map((item) => {
-          const width = Math.max(8, Math.round((item.count / maxCount) * 100));
+          const width = maxCount > 0 ? Math.max(8, Math.round((item.count / maxCount) * 100)) : 8;
 
           return (
             <div key={item.stars} className="flex items-center gap-3">
@@ -391,13 +391,6 @@ export default function DriverRatingsPage() {
   const ratingsQuery = useDriverRatings();
   const ratings = ratingsQuery.data || [];
 
-  if (driverProfileQuery.isLoading || ratingsQuery.isLoading) {
-    return (
-      <main className="min-h-screen bg-white px-6 pt-24">
-        <LoadingState label="Loading ratings..." />
-      </main>
-    );
-  }
 
   const ratingSummary = useMemo(() => {
     const totalReviews = ratings.length;
@@ -452,7 +445,9 @@ export default function DriverRatingsPage() {
             month: "short",
             day: "numeric",
           }).format(new Date(rating.created_at));
-        } catch(e) {}
+        } catch (error) {
+          console.error(error);
+        }
       }
 
       const tags = [];
@@ -526,6 +521,14 @@ export default function DriverRatingsPage() {
     setReplyText("");
   }
 
+  if (driverProfileQuery.isLoading || ratingsQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-white px-6 pt-24">
+        <LoadingState label="Loading ratings..." />
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-white">
       <section className="mx-auto min-h-screen w-full max-w-[430px] bg-white px-6 pb-8 pt-8">
@@ -541,7 +544,7 @@ export default function DriverRatingsPage() {
           </Button>
 
           <div className="text-center">
-            <p className="text-sm font-semibold text-[#008C78]">RideFlow</p>
+            <p className="text-sm font-semibold text-[#008C78]">CityLift</p>
             <h1 className="text-lg font-bold text-[#101820]">Ratings</h1>
           </div>
 

@@ -1,4 +1,4 @@
-import { http } from "msw";
+import { http, HttpResponse } from "msw";
 import { ok, created, fail, mockDelay } from "./responses";
 import { emitMockSocketEvent } from "./socketEvents";
 import {
@@ -538,7 +538,18 @@ export const handlers = [
 
     const body = await readJson(request);
     const driver = getCurrentDriver(user);
+    const wasAvailable = driver.is_available;
     driver.is_available = Boolean(body.is_available);
+
+    if (driver.is_available && !wasAvailable) {
+      driver.online_session_start = new Date().toISOString();
+    } else if (!driver.is_available && wasAvailable) {
+      if (driver.online_session_start) {
+        const elapsed = Date.now() - new Date(driver.online_session_start).getTime();
+        driver.online_accumulated_ms = (driver.online_accumulated_ms || 0) + elapsed;
+      }
+      driver.online_session_start = null;
+    }
 
     if (driver.is_available) {
       globalThis.setTimeout(() => {
@@ -826,6 +837,10 @@ export const handlers = [
     const estimatedDriverEarning = items.reduce((sum, item) => sum + item.estimated_driver_earning, 0);
     const estimatedPlatformCommission = items.reduce((sum, item) => sum + item.estimated_platform_commission, 0);
 
+    const totalMs = (driver.online_accumulated_ms || 0) + 
+      (driver.is_available && driver.online_session_start ? (Date.now() - new Date(driver.online_session_start).getTime()) : 0);
+    const onlineHours = Math.round((totalMs / 3600000) * 10) / 10;
+
     return ok(
       {
         period,
@@ -835,6 +850,7 @@ export const handlers = [
           gross_earnings: grossEarnings,
           estimated_driver_earning: estimatedDriverEarning,
           estimated_platform_commission: estimatedPlatformCommission,
+          online_hours: onlineHours,
         },
         items: items.filter(item => item.completed_rides > 0 || (fromStr && toStr)),
       },
@@ -1165,6 +1181,12 @@ export const handlers = [
     ride.status = "completed";
     ride.completed_at = nowIso();
     ride.updated_at = nowIso();
+
+    const driverObj = db.drivers.find((d) => d.id === ride.driver_id);
+    if (driverObj) {
+      driverObj.total_rides = (driverObj.total_rides || 0) + 1;
+    }
+
     if (ride.fare) {
       ride.fare.actual_distance_km = typeof body.actual_distance_km === "number" ? body.actual_distance_km : 12.8;
       ride.fare.actual_duration_min = typeof body.actual_duration_min === "number" ? body.actual_duration_min : 35;
@@ -1497,5 +1519,134 @@ export const handlers = [
 
     const logs = db.farePredictionLogs.filter((log) => log.ride_id === params.ride_id);
     return ok(logs, "Fare prediction logs fetched successfully");
+  }),
+
+  http.get(`${API}/admin/analytics/graph/popular-routes`, async ({ request }) => {
+    await mockDelay();
+    const { response } = requireRole(request, "admin");
+    if (response) return response;
+
+    if (localStorage.getItem("mock_neo4j_offline") === "true") {
+      return HttpResponse.json(
+        {
+          success: false,
+          statusCode: 503,
+          message: "Neo4j database service is unavailable",
+          errors: []
+        },
+        { status: 503 }
+      );
+    }
+
+    return HttpResponse.json(
+      {
+        success: true,
+        statusCode: 200,
+        message: "Popular routes fetched successfully",
+        data: {
+          routes: [
+            { pickup_area: "Gulberg", dropoff_area: "DHA Phase 5", ride_count: 18 },
+            { pickup_area: "Johar Town", dropoff_area: "Gulberg", ride_count: 15 },
+            { pickup_area: "Model Town", dropoff_area: "Faisal Town", ride_count: 12 },
+            { pickup_area: "Samanabad", dropoff_area: "Anarkali", ride_count: 10 },
+            { pickup_area: "DHA Phase 3", dropoff_area: "Gulberg", ride_count: 9 },
+            { pickup_area: "Gulberg", dropoff_area: "Mall Road", ride_count: 8 },
+            { pickup_area: "Wapda Town", dropoff_area: "Johar Town", ride_count: 7 },
+            { pickup_area: "Lahore Cantt", dropoff_area: "DHA Phase 5", ride_count: 6 },
+            { pickup_area: "Iqbal Town", dropoff_area: "Samanabad", ride_count: 5 },
+            { pickup_area: "Baghbanpura", dropoff_area: "Shalimar", ride_count: 4 }
+          ]
+        }
+      },
+      { status: 200 }
+    );
+  }),
+
+  http.get(`${API}/admin/analytics/graph/collusion-detection`, async ({ request }) => {
+    await mockDelay();
+    const { response } = requireRole(request, "admin");
+    if (response) return response;
+
+    if (localStorage.getItem("mock_neo4j_offline") === "true") {
+      return HttpResponse.json(
+        {
+          success: false,
+          statusCode: 503,
+          message: "Neo4j database service is unavailable",
+          errors: []
+        },
+        { status: 503 }
+      );
+    }
+
+    return HttpResponse.json(
+      {
+        success: true,
+        statusCode: 200,
+        message: "Potential collusion records fetched successfully",
+        data: {
+          collusion_records: [
+            {
+              rider_id: "dc4f7eb8-5c26-49c4-ae65-b2fb99fcd254",
+              rider_name: "Hamza Ali",
+              driver_id: "d292c920-49c0-4880-879a-05d16fbb52f5",
+              driver_name: "Ahmad Amin",
+              completed_count: 7
+            },
+            {
+              rider_id: "rider_001",
+              rider_name: "Ali Khan",
+              driver_id: "driver_002",
+              driver_name: "Bilal Ahmed",
+              completed_count: 6
+            },
+            {
+              rider_id: "rider_002",
+              rider_name: "Zainab Bibi",
+              driver_id: "driver_003",
+              driver_name: "Usman Tariq",
+              completed_count: 8
+            }
+          ]
+        }
+      },
+      { status: 200 }
+    );
+  }),
+
+  http.get(`${API}/admin/analytics/graph/driver-density`, async ({ request }) => {
+    await mockDelay();
+    const { response } = requireRole(request, "admin");
+    if (response) return response;
+
+    if (localStorage.getItem("mock_neo4j_offline") === "true") {
+      return HttpResponse.json(
+        {
+          success: false,
+          statusCode: 503,
+          message: "Neo4j database service is unavailable",
+          errors: []
+        },
+        { status: 503 }
+      );
+    }
+
+    return HttpResponse.json(
+      {
+        success: true,
+        statusCode: 200,
+        message: "Driver density metrics fetched successfully",
+        data: {
+          density: [
+            { area_name: "Gulberg", driver_count: 5 },
+            { area_name: "DHA Phase 5", driver_count: 4 },
+            { area_name: "Johar Town", driver_count: 3 },
+            { area_name: "Model Town", driver_count: 2 },
+            { area_name: "Faisal Town", driver_count: 1 }
+          ]
+        }
+      },
+      { status: 200 }
+    );
   }),
 ];

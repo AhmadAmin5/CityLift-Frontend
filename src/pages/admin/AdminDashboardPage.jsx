@@ -6,6 +6,7 @@ import {
   Database,
   FileCheck2,
   Flame,
+  GitFork,
   LogOut,
   Sliders,
   TrendingUp,
@@ -17,6 +18,7 @@ import { clearAccessToken } from "@/utils/tokenStorage";
 import { useAdminPricingRules, useAdminMlModels } from "@/hooks/admin/useAdminPricing";
 import { useAdminDriverDocuments } from "@/hooks/admin/useAdminDrivers";
 import { useSurgeZones } from "@/hooks/maps/useSurgeZones";
+import { usePendingVehicles } from "@/hooks/admin/useAdminVehicles";
 
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
@@ -27,10 +29,13 @@ export default function AdminDashboardPage() {
   const { data: documents } = useAdminDriverDocuments();
   const { data: surgeZones } = useSurgeZones("Lahore");
   const { data: mlModels } = useAdminMlModels();
+  const { data: pendingVehicles } = usePendingVehicles();
 
   const pendingDocsCount = (documents || []).filter(
     (doc) => doc.status === "pending"
   ).length;
+
+  const pendingVehiclesCount = pendingVehicles?.length || 0;
 
   function handleLogout() {
     clearAccessToken();
@@ -56,6 +61,14 @@ export default function AdminDashboardPage() {
       color: "bg-amber-50 text-amber-600",
     },
     {
+      title: "Vehicle Verification",
+      description: `${pendingVehiclesCount} vehicle(s) pending approval.`,
+      icon: Car,
+      path: "/admin/vehicle-verification",
+      badge: "Pending Review",
+      color: "bg-blue-50 text-blue-600",
+    },
+    {
       title: "Surge Zones",
       description: `${surgeZones?.length || 0} surge zone(s) active in Lahore.`,
       icon: Flame,
@@ -70,6 +83,14 @@ export default function AdminDashboardPage() {
       path: "/admin/ml-models",
       badge: "ML Engine",
       color: "bg-indigo-50 text-indigo-600",
+    },
+    {
+      title: "Graph Analytics",
+      description: "Explore routing trends, driver density, and collusion flags.",
+      icon: GitFork,
+      path: "/admin/graph-analytics",
+      badge: "Neo4j Graph",
+      color: "bg-purple-50 text-purple-600",
     },
   ];
 
@@ -103,10 +124,10 @@ export default function AdminDashboardPage() {
             Database & System Control
           </p>
           <h2 className="mt-1 text-2xl font-bold tracking-[-0.03em] text-[#101820]">
-            Lab Showcase Demo
+            Control Center
           </h2>
           <p className="mt-2 text-sm leading-6 text-[#4B5563]">
-            Configure and run the simulated platform parameters including fare estimation rates, demand zones, and ML models.
+            Configure and run the platform parameters including fare estimation rates, demand zones, and ML models.
           </p>
         </div>
 

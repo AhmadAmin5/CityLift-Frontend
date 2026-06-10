@@ -30,10 +30,15 @@ import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
 import AdminPricingRulesPage from "./pages/admin/AdminPricingRulesPage";
 import AdminDriverDocumentsPage from "./pages/admin/AdminDriverDocumentsPage";
 import AdminSurgeZonesPage from "./pages/admin/AdminSurgeZonesPage";
+import AdminVehicleVerificationPage from "./pages/admin/AdminVehicleVerificationPage";
+import AdminGraphAnalyticsPage from "./pages/admin/AdminGraphAnalyticsPage";
+import BackButtonHandler from "@/components/navigation/BackButtonHandler";
 
 export default function App() {
     return (
-        <Routes>
+        <>
+            <BackButtonHandler />
+            <Routes>
             <Route path="/" element={<Navigate to="/splash" replace />} />
             <Route path="/splash" element={<SplashPage />} />
 
@@ -162,12 +167,21 @@ export default function App() {
                     element={<AdminSurgeZonesPage />}
                 />
                 <Route
+                    path="/admin/vehicle-verification"
+                    element={<AdminVehicleVerificationPage />}
+                />
+                <Route
                     path="/admin/ml-models"
                     element={<PlaceholderPage title="ML Models" />}
+                />
+                <Route
+                    path="/admin/graph-analytics"
+                    element={<AdminGraphAnalyticsPage />}
                 />
             </Route>
 
             <Route path="*" element={<Navigate to="/splash" replace />} />
         </Routes>
+        </>
     );
 }

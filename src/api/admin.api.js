@@ -39,3 +39,30 @@ export async function getAdminMlModels() {
   const response = await api.get("/admin/ml-models");
   return unwrapData(response);
 }
+
+export async function getPendingVehicles() {
+  const response = await api.get("/admin/vehicles/pending");
+  return unwrapData(response);
+}
+
+export async function verifyVehicle({ vehicleId, status }) {
+  const response = await api.patch(`/admin/vehicles/${vehicleId}/verification`, { status });
+  return unwrapData(response);
+}
+
+export async function getPopularRoutes() {
+  const response = await api.get("/admin/analytics/graph/popular-routes");
+  return unwrapData(response);
+}
+
+export async function getCollusionDetection() {
+  const response = await api.get("/admin/analytics/graph/collusion-detection");
+  return unwrapData(response);
+}
+
+export async function getDriverDensity() {
+  const response = await api.get("/admin/analytics/graph/driver-density");
+  return unwrapData(response);
+}
+
+

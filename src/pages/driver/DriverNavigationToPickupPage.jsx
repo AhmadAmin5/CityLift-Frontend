@@ -328,6 +328,10 @@ export default function DriverNavigationToPickupPage() {
   const [navigationMode, setNavigationMode] = useState("in_app");
   const [driverCoords, setDriverCoords] = useState(null);
   const lastEmitTimeRef = useRef(0);
+
+  const etaMinRef = useRef(5);
+  const distanceRemainingRef = useRef(1.4);
+
   const rideQuery = useRide(ride_id);
   const liveQuery = useRideLive(ride_id);
   const routeQuery = useRideRoute(ride_id, "driver_to_pickup");
@@ -342,6 +346,18 @@ export default function DriverNavigationToPickupPage() {
   const route = getRouteFromResponse(routeQuery.data);
   const trip = toDriverTripView(ride, liveState, route);
   const rideId = ride_id || trip.ride_id;
+
+  useEffect(() => {
+    if (trip.route_to_pickup?.eta_min !== undefined) {
+      etaMinRef.current = trip.route_to_pickup.eta_min;
+    }
+  }, [trip.route_to_pickup?.eta_min]);
+
+  useEffect(() => {
+    if (trip.route_to_pickup?.distance_km !== undefined) {
+      distanceRemainingRef.current = trip.route_to_pickup.distance_km;
+    }
+  }, [trip.route_to_pickup?.distance_km]);
 
   useEffect(() => {
     const flushOfflineQueue = async () => {
@@ -409,6 +425,7 @@ export default function DriverNavigationToPickupPage() {
 
   useEffect(() => {
     let watchId = null;
+    let active = true;
 
     async function startWatching() {
       if (!ride_id) return;
@@ -423,7 +440,7 @@ export default function DriverNavigationToPickupPage() {
           }
         }
 
-        watchId = await PlatformGeolocation.watchPosition(
+        const id = await PlatformGeolocation.watchPosition(
           {
             enableHighAccuracy: true,
             timeout: 15000,
@@ -434,6 +451,7 @@ export default function DriverNavigationToPickupPage() {
               console.error("Continuous tracking error:", err);
               return;
             }
+            if (!active) return;
             if (position?.coords) {
               const nextLoc = {
                 latitude: Number(position.coords.latitude),
@@ -443,8 +461,8 @@ export default function DriverNavigationToPickupPage() {
 
               const speed_kmph = position.coords.speed ? Math.round(position.coords.speed * 3.6) : 0;
               const heading = position.coords.heading || 90;
-              const eta_min = trip.route_to_pickup?.eta_min || 5;
-              const distance_remaining_km = trip.route_to_pickup?.distance_km || 1.4;
+              const eta_min = etaMinRef.current;
+              const distance_remaining_km = distanceRemainingRef.current;
 
               // Throttle to 5 seconds
               const now = Date.now();
@@ -498,6 +516,12 @@ export default function DriverNavigationToPickupPage() {
             }
           }
         );
+
+        if (!active) {
+          PlatformGeolocation.clearWatch({ id: id });
+        } else {
+          watchId = id;
+        }
       } catch (error) {
         console.error("Failed to start watching location:", error);
       }
@@ -506,11 +530,12 @@ export default function DriverNavigationToPickupPage() {
     startWatching();
 
     return () => {
+      active = false;
       if (watchId !== null) {
         PlatformGeolocation.clearWatch({ id: watchId });
       }
     };
-  }, [ride_id, trip.route_to_pickup?.eta_min, trip.route_to_pickup?.distance_km]);
+  }, [ride_id]);
 
   async function handleArrived() {
     try {

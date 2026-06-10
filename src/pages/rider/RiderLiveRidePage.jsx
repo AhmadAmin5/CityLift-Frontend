@@ -351,7 +351,8 @@ export default function RiderLiveRidePage() {
   const rideQuery = useRide(ride_id);
   const liveQuery = useRideLive(ride_id);
   const mapConfigQuery = useMapConfig();
-  const routeQuery = useRideRoute(ride_id);
+  const routeType = (status === "accepted" || status === "arrived") ? "driver_to_pickup" : "pickup_to_dropoff";
+  const routeQuery = useRideRoute(ride_id, routeType);
   const route = getRouteFromResponse(routeQuery.data);
   const cancelRideMutation = useCancelRide(ride_id);
 
@@ -371,7 +372,7 @@ export default function RiderLiveRidePage() {
     rideId: ride_id,
     handlers: {
       onStatusUpdate: (payload) => {
-        console.log("[RiderLive] \ud83d\udd14 ride:status:update received:", payload);
+        console.log("[RiderLive] 🔔 ride:status:update received:", payload);
         const status = payload?.new_status || payload?.status;
         if (payload?.ride_id !== ride_id || !statusCopy[status]) return;
         setStatus(status);
@@ -385,7 +386,6 @@ export default function RiderLiveRidePage() {
         if (liveState?.ride_id === ride_id) {
           setSocketLiveState(liveState);
           if (statusCopy[liveState.status]) setStatus(liveState.status);
-          routeQuery.refetch();
         }
       },
       onRouteUpdate: (payload) => {
@@ -468,7 +468,7 @@ export default function RiderLiveRidePage() {
 
                   <div>
                     <p className="text-xs font-semibold text-[#008C78]">
-                      RideFlow
+                      CityLift
                     </p>
                     <p className="max-w-[170px] truncate text-sm font-bold text-[#101820]">
                       {statusCopy[normalizedStatus].badge}
